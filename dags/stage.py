@@ -1,0 +1,320 @@
+"""
+This module contains the base classes of the Stage functionality for pydags,
+as well as various implementations of Stages to be used in different contexts.
+Most implementations can be subclassed and extended by the user. All Stages
+must contain 1) a 'name' property and 2) 'run' method.
+
+There are two primary ways for users to define Stages in their own pipelines.
+The first is by decorating a function with the pydags.stage.stage decorator.
+The other is by subclassing Stage, SQLiteStage, DiskCacheStage.
+"""
+
+from abc import ABC, abstractmethod
+
+import logging
+import diskcache
+import pandas as pd
+
+from .serialization import PickleSerializer
+from .cache import SQLiteCache, DiskCache
+
+
+class Stage(ABC):
+    """
+    Base abstract class from which all stages must inherit. All subclasses must
+    implement at least `run` methods.
+
+    preceding_stages: List of preceding stages for the stage
+    name: Name of the stage
+    """
+    def __init__(self):
+        self.preceding_stages = list()
+
+    def after(self, pipeline_stages: list):
+        """Method to add stages as dependencies for the current stage."""
+        if not isinstance(pipeline_stages, list):
+            pipeline_stages = [pipeline_stages]
+        self.preceding_stages.extend(pipeline_stages)
+        return self
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        ...
+
+    @abstractmethod
+    def run(self, *args, **kwargs):
+        ...
+
+
+class CustomStage(Stage, PickleSerializer, SQLiteCache):
+    """
+    Stage type to use if a local database cache (i.e. SQLite) is required.
+    SQLite can be used to pass data between stages, or cache values to be used
+    elsewhere downstream. It's completely up to the implementer/user, as this
+    interface to SQLite is generic, and enables the reading/writing of generic
+    Python objects from/to SQLite through pickle-based serialization.
+
+    The underlying DAG of the Pipeline object requires serialisation itself as
+    part of the inner workings of pydags.
+    """
+
+    def __init__(self):
+        SQLiteCache.__init__(self, db_path="./pipeline.db")
+        Stage.__init__(self)
+
+    def read(self, k: str) -> object:
+        return self.deserialize(SQLiteCache.read(self, k))
+
+    def write(self, k: str, v: object) -> None:
+        SQLiteCache.write(self, k, self.serialize(v))
+
+    @property
+    def name(self) -> str:
+        """
+        The name is the final subclass (i.e. the name class defined by the user
+        when subclassing this class.
+        """
+        return self.__class__.__name__
+    
+
+class BaseStage(CustomStage):
+    """
+    基础阶段类，继承自CustomStage。
+    提供了设置输入输出、运行阶段等基本功能。
+    """
+
+    input_data_names: list = []  # 输入数据名称列表
+    output_data_names: list = []  # 输出数据名称列表
+
+    def set_input(self, input_data_name: str):
+        """
+        设置单个输入数据名称。
+
+        参数:
+            input_data_name (str 或 list): 输入数据名称。
+
+        返回:
+            self: 返回实例本身，支持链式调用。
+
+        异常:
+            TypeError: 如果输入类型不匹配。
+        """
+        if isinstance(input_data_name, list) and len(input_data_name) == 1:
+            self.input_data_names = input_data_name
+        elif isinstance(input_data_name, str):
+            self.input_data_names = [input_data_name]
+        else:
+            raise TypeError("input_data_name类型不匹配")
+        logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
+        return self
+    
+    def add_input(self, input_data_name: str):
+        """
+        添加一个输入数据名称。
+
+        参数:
+            input_data_name (str): 要添加的输入数据名称。
+
+        返回:
+            self: 返回实例本身，支持链式调用。
+        """
+        if self.input_data_names:
+            self.input_data_names.append(input_data_name)
+        else:
+            self.set_input(input_data_name)
+        return self
+
+    def set_inputs(self, input_data_names: list[str]):
+        """
+        设置多个输入数据名称。
+
+        参数:
+            input_data_names (list[str]): 输入数据名称列表。
+
+        返回:
+            self: 返回实例本身，支持链式调用。
+
+        异常:
+            AssertionError: 如果输入不是列表类型。
+        """
+        assert(isinstance(input_data_names, list))
+        self.input_data_names = input_data_names
+        logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
+        return self
+    
+    def set_default_outputs(self, n_outputs):
+        """
+        设置默认输出数据名称。
+
+        参数:
+            n_outputs (int): 输出数量。
+
+        返回:
+            self: 返回实例本身，支持链式调用。
+        """
+        self.output_data_names = [f"{self.name}_output_{i}" for i in range(n_outputs)]
+        logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
+        return self
+    
+    def reset_outputs(self, output_name_list: list[str]):
+        """
+        重置输出数据名称。
+
+        参数:
+            output_name_list (list[str]): 新的输出数据名称列表。
+
+        返回:
+            self: 返回实例本身，支持链式调用。
+        """
+        self.output_data_names = output_name_list
+        logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
+        return self
+
+    def forward(self, *args, **kwargs):
+        """
+        前向传播方法，需要在子类中实现。
+
+        异常:
+            NotImplementedError: 如果子类没有实现此方法。
+        """
+        raise NotImplementedError()
+
+    def run(self, *args, **kwargs):
+        """
+        运行阶段的主要方法。
+        读取输入数据，调用forward方法，并写入输出数据。
+
+        参数:
+            *args: 可变位置参数。
+            **kwargs: 可变关键字参数。
+        """
+        if self.input_data_names:
+            input_datas = []
+            for name in self.input_data_names:
+                data = self.read(name)
+                input_datas.append(data)
+            outs = self.forward(*input_datas, *args, **kwargs)
+        else:
+            logging.warning(f"stage: {self.name} 无任何输入")
+            outs = self.forward(*args, **kwargs)
+
+        if self.output_data_names:
+            if len(self.output_data_names) == 1:
+                self.write(self.output_data_names[0], outs)
+            else:
+                for o_n, o in zip(self.output_data_names, outs):
+                    self.write(o_n, o)
+        else:
+            logging.warning(f"stage: {self.name} 无任何输出")
+
+
+class DecoratorStage(BaseStage):
+    """
+    Class to wrap any user-defined function decorated with the stage decorator.
+
+    stage_function: The callable defined by the user-defined function pipeline
+                    stage.
+    args: The arguments to the user-defined function pipeline stage.
+    kwargs: The keyword arguments to the user-defined function pipeline stage.
+    """
+
+    def __init__(self, stage_function: callable, *args, **kwargs):
+        super().__init__()
+
+        self.stage_function = stage_function
+        self.args = args
+        self.kwargs = kwargs
+
+    @property
+    def name(self) -> str:
+        """Name is given by the name of the user-defined decorated function."""
+        return self.stage_function.__name__
+
+    def forward(self, *args, **kwargs) -> None:
+        """
+        Stage is run by calling the wrapped user function with its arguments.
+        """
+        return self.stage_function(*args, *self.args, **kwargs, **self.kwargs)
+
+
+class DiskCacheStage(Stage, PickleSerializer, DiskCache):
+    """
+    Stage type to use if a disk-based cache is required. The disk cache can be
+    used to pass data between stages, or cache values to be used elsewhere
+    downstream. It's completely up to the implementer/user, as this interface
+    to the disk cache is generic, and enables the reading/writing of generic
+    Python objects from/to the disk cache through pickle-based serialization.
+    """
+
+    def __init__(self, cache: diskcache.Cache):
+        DiskCache.__init__(self, disk_cache=cache)
+        Stage.__init__(self)
+
+    def read(self, k: str) -> object:
+        return self.deserialize(DiskCache.read(self, k))
+
+    def write(self, k: str, v: object) -> None:
+        DiskCache.write(self, k, self.serialize(v))
+
+    @property
+    def name(self) -> str:
+        """
+        The name is the final subclass (i.e. the name class defined by the user
+        when subclassing this class.
+        """
+        return self.__class__.__name__
+    
+
+class StageExecutor(PickleSerializer, SQLiteCache):
+    """
+    Context manager for the execution of a stage, or group of stages, of a
+    pipeline.
+
+    The setup phase (__enter__) persists relevant metadata such as the stages
+    currently in progress to a SQLite database.
+
+    The teardown phase (__exit__) deletes relevant metadata from the SQLite
+    database.
+
+    db_path: Path to the SQLite database.
+    stages: The stages that are currently in progress.
+    """
+    def __init__(self, db_path, stages):
+        SQLiteCache.__init__(self, db_path)
+
+        self.pipeline = self.read('pipeline')
+        self.stages = stages
+
+    def __enter__(self):
+        self.write('in_progress', self.serialize(self.stages))
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        completed = self.deserialize(self.read('in_progress'))
+        current_done = self.read('done')
+        if current_done is None:
+            current_done = []
+        else:
+            current_done = self.deserialize(current_done)
+        current_done += completed
+        self.write('done', self.serialize(current_done))
+        self.delete('in_progress')
+
+    @staticmethod
+    def execute(fn: callable, *args, **kwargs) -> None:
+        """Execute the stage/group of stages."""
+        fn(*args, **kwargs)
+
+
+def stage(stage_function: callable):
+    """
+    Decorator used to specify user-defined functions as pipeline stages (i.e.
+    DAG nodes). The decorated wraps the decorated function in the
+    DecoratorStage class, as this follows the expected format for a pipeline
+    stage.
+    """
+    def wrapper(*args, **kwargs) -> DecoratorStage:
+        return DecoratorStage(stage_function, *args, **kwargs)
+
+    return wrapper
