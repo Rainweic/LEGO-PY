@@ -1,8 +1,8 @@
 from pandas import DataFrame
-from dags.stage import BaseStage
+from dags.stage import CustomStage
 
 
-class FilterStage(BaseStage):
+class FilterStage(CustomStage):
     """
     FilterStage 类用于对 DataFrame 进行过滤操作。
 
@@ -20,7 +20,7 @@ class FilterStage(BaseStage):
     """
 
     def __init__(self, items: list = None, like: str = None, regex: str = None, axis: int = None):
-        super().__init__()
+        super().__init__(n_outputs=1)
         self.items = items
         self.list = list
         self.like = like

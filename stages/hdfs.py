@@ -1,7 +1,9 @@
 import os
 import pandas as pd
+import hashlib
+import logging
 from utils.hdfs_v3 import download
-from dags.stage import BaseStage
+from dags.stage import CustomStage
 
 
 CACHE_PATH = "./cache"
@@ -12,8 +14,14 @@ def hdfs_download(path: str, overwrite: bool):
     if not os.path.exists(CACHE_PATH):
         os.makedirs(CACHE_PATH)
     
+    # 使用路径的哈希值创建唯一的文件名
+    path_hash = hashlib.md5(path.encode()).hexdigest()[:8]
+    base_name = os.path.basename(path)
+    unique_name = f"{path_hash}_{base_name}"
+    
     # 构建本地缓存文件路径
-    local_path = os.path.join(CACHE_PATH, os.path.basename(path))
+    local_path = os.path.join(CACHE_PATH, unique_name)
+    logging.info(f"Download: {path} -> {local_path}")
     
     if os.path.exists(local_path):
         if overwrite:
@@ -23,10 +31,10 @@ def hdfs_download(path: str, overwrite: bool):
     return local_path
 
 
-class HDFSCSVReadStage(BaseStage):
+class HDFSCSVReadStage(CustomStage):
 
     def __init__(self, path: str, overwrite: bool = True, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(n_outputs=1)
         self.path = path
         self.overwrite = overwrite
 
@@ -34,7 +42,7 @@ class HDFSCSVReadStage(BaseStage):
     def reader(self):
         return pd.read_csv
     
-    def forward(self, df: pd.DataFrame) -> pd.DataFrame:
+    def forward(self, *args, **kwargs) -> pd.DataFrame:
 
         local_path = hdfs_download(self.path, self.overwrite)
     

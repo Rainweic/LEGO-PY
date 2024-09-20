@@ -1,10 +1,9 @@
 import pandas as pd
 
-from dags.stage import stage
-from dags.stage import BaseStage
+from dags.stage import CustomStage
 
 
-class CastStage(BaseStage):
+class CastStage(CustomStage):
     """
     CastStage 类用于将DataFrame中的特定列进行映射转换。
 
@@ -27,7 +26,7 @@ class CastStage(BaseStage):
             feature_name (str): 需要进行转换的特征(列)名称。
             map (dict): 用于转换的映射字典,键为原始值,值为映射后的新值。
         """
-        super().__init__()
+        super().__init__(n_outputs=1)
         self.feature_name = feature_name
         self.map = map
 

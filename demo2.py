@@ -7,10 +7,13 @@ import sys
 sys.path.append("..")
 
 from dags.pipeline import Pipeline
-from dags.stage import BaseStage
+from dags.stage import CustomStage
 
 
-class DataIngestor(BaseStage):
+class DataIngestor(CustomStage):
+
+    def __init__(self):
+        super().__init__(n_outputs=2)
 
     @staticmethod
     def download_data():
@@ -24,7 +27,11 @@ class DataIngestor(BaseStage):
         return features, targets
 
 
-class DataPreprocessor(BaseStage):
+class DataPreprocessor(CustomStage):
+
+    def __init__(self):
+        super().__init__(n_outputs=1)
+
     @staticmethod
     def normalize(features):
         return MinMaxScaler().fit_transform(features)
@@ -47,9 +54,10 @@ class DataPreprocessor(BaseStage):
         return data
 
 
-class ModelTrainer(BaseStage):
-    def __init__(self, *args, **kwargs):
-        super(ModelTrainer, self).__init__(*args, **kwargs)
+class ModelTrainer(CustomStage):
+
+    def __init__(self):
+        super().__init__(n_outputs=0)
 
         self.model = None
 
@@ -76,12 +84,11 @@ class ModelTrainer(BaseStage):
 
 def build_pipeline():
 
-    data_ingestor = DataIngestor().set_default_outputs(2)
+    data_ingestor = DataIngestor()
 
     data_preprocessor = DataPreprocessor() \
         .after(data_ingestor) \
-        .set_inputs(data_ingestor.output_data_names) \
-        .set_default_outputs(1)
+        .set_inputs(data_ingestor.output_data_names)
 
     model_trainer = ModelTrainer() \
         .after(data_preprocessor) \

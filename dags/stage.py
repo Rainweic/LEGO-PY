@@ -11,6 +11,7 @@ The other is by subclassing Stage, SQLiteStage, DiskCacheStage.
 
 from abc import ABC, abstractmethod
 
+import uuid
 import logging
 import diskcache
 import pandas as pd
@@ -47,7 +48,7 @@ class Stage(ABC):
         ...
 
 
-class CustomStage(Stage, PickleSerializer, SQLiteCache):
+class BaseStage(Stage, PickleSerializer, SQLiteCache):
     """
     Stage type to use if a local database cache (i.e. SQLite) is required.
     SQLite can be used to pass data between stages, or cache values to be used
@@ -59,9 +60,13 @@ class CustomStage(Stage, PickleSerializer, SQLiteCache):
     part of the inner workings of pydags.
     """
 
+    input_data_names: list = []  # 输入数据名称列表
+    output_data_names: list = []  # 输出数据名称列表
+
     def __init__(self):
         SQLiteCache.__init__(self, db_path="./pipeline.db")
         Stage.__init__(self)
+        self._uuid = str(uuid.uuid4())[:8] 
 
     def read(self, k: str) -> object:
         return self.deserialize(SQLiteCache.read(self, k))
@@ -77,16 +82,6 @@ class CustomStage(Stage, PickleSerializer, SQLiteCache):
         """
         return self.__class__.__name__
     
-
-class BaseStage(CustomStage):
-    """
-    基础阶段类，继承自CustomStage。
-    提供了设置输入输出、运行阶段等基本功能。
-    """
-
-    input_data_names: list = []  # 输入数据名称列表
-    output_data_names: list = []  # 输出数据名称列表
-
     def set_input(self, input_data_name: str):
         """
         设置单个输入数据名称。
@@ -143,7 +138,7 @@ class BaseStage(CustomStage):
         logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
     
-    def set_default_outputs(self, n_outputs):
+    def set_n_outputs(self, n_outputs):
         """
         设置默认输出数据名称。
 
@@ -153,21 +148,8 @@ class BaseStage(CustomStage):
         返回:
             self: 返回实例本身，支持链式调用。
         """
-        self.output_data_names = [f"{self.name}_output_{i}" for i in range(n_outputs)]
-        logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
-        return self
-    
-    def reset_outputs(self, output_name_list: list[str]):
-        """
-        重置输出数据名称。
-
-        参数:
-            output_name_list (list[str]): 新的输出数据名称列表。
-
-        返回:
-            self: 返回实例本身，支持链式调用。
-        """
-        self.output_data_names = output_name_list
+        self._n_outputs = n_outputs
+        self.output_data_names = [f"{self.name}_{self._uuid}_output_{i}" for i in range(n_outputs)]
         logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
         return self
 
@@ -207,6 +189,17 @@ class BaseStage(CustomStage):
                     self.write(o_n, o)
         else:
             logging.warning(f"stage: {self.name} 无任何输出")
+    
+
+class CustomStage(BaseStage):
+    """
+    基础阶段类，继承自CustomStage。
+    提供了设置输入输出、运行阶段等基本功能。
+    """
+
+    def __init__(self, n_outputs):
+        super().__init__()
+        self.set_n_outputs(n_outputs)
 
 
 class DecoratorStage(BaseStage):
@@ -219,12 +212,13 @@ class DecoratorStage(BaseStage):
     kwargs: The keyword arguments to the user-defined function pipeline stage.
     """
 
-    def __init__(self, stage_function: callable, *args, **kwargs):
+    def __init__(self, stage_function: callable, n_outputs: int, *args, **kwargs):
         super().__init__()
 
         self.stage_function = stage_function
         self.args = args
         self.kwargs = kwargs
+        self.set_n_outputs(n_outputs)
 
     @property
     def name(self) -> str:
@@ -307,14 +301,9 @@ class StageExecutor(PickleSerializer, SQLiteCache):
         fn(*args, **kwargs)
 
 
-def stage(stage_function: callable):
-    """
-    Decorator used to specify user-defined functions as pipeline stages (i.e.
-    DAG nodes). The decorated wraps the decorated function in the
-    DecoratorStage class, as this follows the expected format for a pipeline
-    stage.
-    """
-    def wrapper(*args, **kwargs) -> DecoratorStage:
-        return DecoratorStage(stage_function, *args, **kwargs)
-
-    return wrapper
+def stage(n_outputs: int):
+    def decorator(stage_function: callable):
+        def wrapper(*args, **kwargs) -> DecoratorStage:
+            return DecoratorStage(stage_function, n_outputs, *args, **kwargs)
+        return wrapper
+    return decorator

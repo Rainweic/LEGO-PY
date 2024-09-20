@@ -24,7 +24,7 @@ import matplotlib.image as mpimg
 
 from .serialization import CloudPickleSerializer
 from .cache import SQLiteCache
-from .stage import StageExecutor, Stage
+from .stage import StageExecutor, BaseStage
 
 
 class StageException(Exception):
@@ -86,7 +86,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                         new_zero_indegree.append(child)
             zero_indegree = new_zero_indegree
 
-    def add_stage(self, stage: Stage) -> None:
+    def add_stage(self, stage: BaseStage) -> None:
         """
         向pipeline添加阶段的方法。如果阶段已经存在于DAG中,则不会添加
         (尽管networkx可以处理这种情况)。阶段根据其名称(通常是用户定义的类或函数名称)
@@ -98,8 +98,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         最后,进行检查以确保在添加阶段后,DAG仍然确实是一个DAG。
         """
 
-        if not isinstance(stage, Stage):
-            raise InvalidStageTypeException('请确保您的阶段是pydags.stage.Stage的子类')
+        if not isinstance(stage, BaseStage):
+            raise InvalidStageTypeException('请确保您的阶段是pydags.stage.BaseStage的子类')
 
         self.pipeline.add_node(stage.name, stage_wrapper=stage)
 
@@ -109,7 +109,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if not nx.is_directed_acyclic_graph(self.pipeline):
             raise DAGVerificationException('Pipeline不再是一个DAG!')
 
-    def add_stages(self, stages: typing.List[Stage]) -> None:
+    def add_stages(self, stages: typing.List[BaseStage]) -> None:
         """
         向pipeline添加阶段列表的方法。如果段已经存在于DAG中,则不会添加
         (尽管networkx可以处理这种情况)。阶段根据其名称(通常是用户定义的类或函数名称)
