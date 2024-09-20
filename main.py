@@ -5,7 +5,7 @@ from dags.pipeline import Pipeline
 from stages import *
 
 
-@stage(n_outputs=1)
+@stage
 def filter_sample_label(df):
     """
     过滤和采样标签数据。
@@ -41,10 +41,10 @@ def build_pipeline():
         Pipeline: 构建好的流水线对象。
     """
 
-    """--------------label生成-------------"""
     # 读取标签数据
     label_data_path = f"/projects/growth/test/analysis_tools/alg_label/coupon_planned_strategy/expose_label/single/{sample_date}"
-    label_data_read_stage = HDFSCSVReadStage(path=label_data_path, overwrite=False).set_n_outputs(n_outputs=1)
+    label_data_read_stage = HDFSCSVReadStage(path=label_data_path, overwrite=False) \
+        .set_n_outputs(n_outputs=1)
 
     # 对标签进行映射
     map = {
@@ -63,30 +63,6 @@ def build_pipeline():
         .after(label_cast_stage) \
         .set_input(label_cast_stage.output_data_names[0]) \
         .set_n_outputs(n_outputs=1)
-    
-
-    """-------------获取各类标签-------------"""
-
-    # lucky_member_group_type 客群分类标签
-    group_type_path = f"/projects/growth/prod/user-reach-label/data/order/order_message_part2/{sample_date}"
-    group_type_read_stage = HDFSORCReadStage(path=group_type_path, overwrite=False).set_n_outputs(1)
-
-    # is_alt_member 是否小号
-    is_alt_member_path = f"/projects/growth/prod/user-reach-label/view/label_view/{sample_date}"
-    is_alt_member_read_stage = HDFSORCReadStage(path=is_alt_member_path, overwrite=False).set_n_outputs(1)
-
-    # start_days_30d 用户启动天数_30天
-    start_days_30d_path = f"/projects/growth/prod/user-reaxch-label/data/coupon-control/base/login_order_labels/{sample_date}"
-    start_days_30d_read_stage = HDFSORCReadStage(path=start_days_30d_path, overwrite=False).set_n_outputs(1)
-
-    # is_start_no_order_prefer_user 有无启动不下单偏好
-    is_start_no_order_prefer_user_path = f"/projects/growth/prod/user-reach-label/data/coupon-control/base/login_order_labels/{sample_date}"
-    is_start_no_order_prefer_user_read_stage = HDFSORCReadStage(path=is_start_no_order_prefer_user_path, overwrite=False).set_n_outputs(1)
-
-    # psm_360d psm_360天
-    psm_360d = f"/projects/growth/prod/user-reach-label/data/coupon-control/base/member_income_psm_360d/{sample_date}"
-    psm_360d_read_stage =  HDFSORCReadStage(path=psm_360d, overwrite=False).set_n_outputs(1)
-
     
     pipeline = Pipeline()
     pipeline.add_stages([
