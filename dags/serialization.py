@@ -28,12 +28,10 @@ import cloudpickle
 
 class Serializer(ABC):
     @abstractmethod
-    def serialize(self, *args, **kwargs):
-        ...
+    def serialize(self, *args, **kwargs): ...
 
     @abstractmethod
-    def deserialize(self, *args, **kwargs):
-        ...
+    def deserialize(self, *args, **kwargs): ...
 
 
 class SerializationException(Exception):
@@ -50,17 +48,23 @@ class PickleSerializer(Serializer):  # Cannot serialize decorated functions
 
     def deserialize(self, serialized_obj: bytes) -> object:
         if not isinstance(serialized_obj, bytes):
-            raise InvalidTypeForDeserializationException('Please ensure the serialized object is of type bytes.')
+            raise InvalidTypeForDeserializationException(
+                "Please ensure the serialized object is of type bytes."
+            )
         return pickle.loads(serialized_obj)
 
 
-class DillSerializer(Serializer):  # Cannot serialize (subclasses of) abstract base classes
+class DillSerializer(
+    Serializer
+):  # Cannot serialize (subclasses of) abstract base classes
     def serialize(self, obj: object) -> bytes:
         return dill.dumps(obj)
 
     def deserialize(self, serialized_obj: bytes) -> object:
         if not isinstance(serialized_obj, bytes):
-            raise InvalidTypeForDeserializationException('Please ensure the serialized object is of type bytes.')
+            raise InvalidTypeForDeserializationException(
+                "Please ensure the serialized object is of type bytes."
+            )
         return dill.loads(serialized_obj)
 
 
@@ -70,5 +74,7 @@ class CloudPickleSerializer(Serializer):
 
     def deserialize(self, serialized_obj: bytes) -> object:
         if not isinstance(serialized_obj, bytes):
-            raise InvalidTypeForDeserializationException('Please ensure the serialized object is of type bytes.')
+            raise InvalidTypeForDeserializationException(
+                "Please ensure the serialized object is of type bytes."
+            )
         return cloudpickle.loads(serialized_obj)

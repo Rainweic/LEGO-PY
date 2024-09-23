@@ -26,16 +26,13 @@ class Cache(ABC):
     """
 
     @abstractmethod
-    def read(self, *args, **kwargs):
-        ...
+    def read(self, *args, **kwargs): ...
 
     @abstractmethod
-    def write(self, *args, **kwargs):
-        ...
+    def write(self, *args, **kwargs): ...
 
     @abstractmethod
-    def delete(self, *args, **kwargs):
-        ...
+    def delete(self, *args, **kwargs): ...
 
 
 class InvalidCacheTypeException(Exception):
@@ -66,8 +63,10 @@ class SQLiteCache(Cache):
         if not self.finish_init:
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
-            self.cursor.execute('''CREATE TABLE IF NOT EXISTS cache
-                                (key TEXT PRIMARY KEY, value BLOB)''')
+            self.cursor.execute(
+                """CREATE TABLE IF NOT EXISTS cache
+                                (key TEXT PRIMARY KEY, value BLOB)"""
+            )
             self.conn.commit()
             self.finish_init = True
 
@@ -75,7 +74,7 @@ class SQLiteCache(Cache):
         """从SQLite给定关联的字符串键读取值。"""
         self.init()
         if not isinstance(k, str):
-            raise InvalidKeyTypeException('请确保键是字符串')
+            raise InvalidKeyTypeException("请确保键是字符串")
 
         self.cursor.execute("SELECT value FROM cache WHERE key=?", (k,))
         result = self.cursor.fetchone()
@@ -85,18 +84,20 @@ class SQLiteCache(Cache):
         self.init()
         """给定键值对,将值写入SQLite。"""
         if not isinstance(k, str):
-            raise InvalidKeyTypeException('请确保键是字符串')
+            raise InvalidKeyTypeException("请确保键是字符串")
 
         if not isinstance(v, (str, bytes)):
-            raise InvalidValueTypeException('请确保值是字符串或字节类型')
+            raise InvalidValueTypeException("请确保值是字符串或字节类型")
 
-        self.cursor.execute("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", (k, v))
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", (k, v)
+        )
         self.conn.commit()
 
     def delete(self, k: str) -> None:
         """给定关联的字符串键,从SQLite删除值。"""
         if not isinstance(k, str):
-            raise InvalidKeyTypeException('请确保键是字符串')
+            raise InvalidKeyTypeException("请确保键是字符串")
 
         self.cursor.execute("DELETE FROM cache WHERE key=?", (k,))
         self.conn.commit()
@@ -109,30 +110,30 @@ class DiskCache(Cache):
 
     def __init__(self, disk_cache: diskcache.Cache):
         if not isinstance(disk_cache, diskcache.Cache):
-            raise InvalidCacheTypeException('请确保disk_cache的类型是diskcache.Cache')
+            raise InvalidCacheTypeException("请确保disk_cache的类型是diskcache.Cache")
 
         self.disk_cache = disk_cache
 
     def read(self, k: str) -> bytes:
         """给定关联的字符串键,从磁盘缓存读取值。"""
         if not isinstance(k, str):
-            raise InvalidKeyTypeException('请确保键是字符串')
+            raise InvalidKeyTypeException("请确保键是字符串")
 
         return self.disk_cache[k]
 
     def write(self, k: str, v: bytes) -> None:
         """给定键值对,将值写入磁盘缓存。"""
         if not isinstance(k, str):
-            raise InvalidKeyTypeException('请确保键是字符串')
+            raise InvalidKeyTypeException("请确保键是字符串")
 
         if not isinstance(v, (str, bytes)):
-            raise InvalidValueTypeException('请确保值是字符串或字节类型')
+            raise InvalidValueTypeException("请确保值是字符串或字节类型")
 
         self.disk_cache[k] = v
 
     def delete(self, k: str) -> None:
         """给定关联的字符串键,从磁盘缓存删除值。"""
         if not isinstance(k, str):
-            raise InvalidKeyTypeException('请确保键是字符串')
+            raise InvalidKeyTypeException("请确保键是字符串")
 
         self.disk_cache.delete(k)

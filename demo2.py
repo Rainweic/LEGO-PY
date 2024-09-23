@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
 import sys
+
 sys.path.append("..")
 
 from dags.pipeline import Pipeline
@@ -18,8 +19,8 @@ class DataIngestor(CustomStage):
     @staticmethod
     def download_data():
         data = load_wine()
-        features = data['data']
-        targets = data['target']
+        features = data["data"]
+        targets = data["target"]
         return features, targets
 
     def forward(self, *args, **kwargs):
@@ -47,10 +48,7 @@ class DataPreprocessor(CustomStage):
         xtr = self.normalize(xtr)
         xte = self.normalize(xte)
 
-        data = {
-            'xtr': xtr, 'xte': xte,
-            'ytr': ytr, 'yte': yte
-        }
+        data = {"xtr": xtr, "xte": xte, "ytr": ytr, "yte": yte}
         return data
 
 
@@ -69,32 +67,35 @@ class ModelTrainer(CustomStage):
         return acc
 
     def forward(self, preprocessed_data, *args, **kwargs):
-        
-        xtr = preprocessed_data['xtr']
-        xte = preprocessed_data['xte']
-        ytr = preprocessed_data['ytr']
-        yte = preprocessed_data['yte']
+
+        xtr = preprocessed_data["xtr"]
+        xte = preprocessed_data["xte"]
+        ytr = preprocessed_data["ytr"]
+        yte = preprocessed_data["yte"]
 
         self.train_model(xtr, ytr)
 
         acc = self.test_model(xte, yte)
 
-        print('Accuracy:', acc)
-
+        print("Accuracy:", acc)
 
 
 with Pipeline() as p:
 
     data_ingestor = DataIngestor().set_pipeline(p)
 
-    data_preprocessor = DataPreprocessor() \
-        .set_pipeline(p) \
-        .after(data_ingestor) \
+    data_preprocessor = (
+        DataPreprocessor()
+        .set_pipeline(p)
+        .after(data_ingestor)
         .set_inputs(data_ingestor.output_data_names)
+    )
 
-    model_trainer = ModelTrainer() \
-        .set_pipeline(p) \
-        .after(data_preprocessor) \
+    model_trainer = (
+        ModelTrainer()
+        .set_pipeline(p)
+        .after(data_preprocessor)
         .set_inputs(data_preprocessor.output_data_names)
+    )
 
 p.start()

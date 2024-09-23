@@ -5,9 +5,9 @@ from .filter import FilterStage
 from .join import *
 
 __all__ = [
-    "BaseStage", 
-    "HDFSCSVReadStage", 
-    "HDFSORCReadStage", 
+    "BaseStage",
+    "HDFSCSVReadStage",
+    "HDFSORCReadStage",
     "CastStage",
     "FilterStage",
     "join",

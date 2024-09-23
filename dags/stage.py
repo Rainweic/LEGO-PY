@@ -33,6 +33,7 @@ class Stage(ABC):
     preceding_stages: List of preceding stages for the stage
     name: Name of the stage
     """
+
     def __init__(self):
         self.preceding_stages = list()
 
@@ -45,12 +46,10 @@ class Stage(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     @abstractmethod
-    def run(self, *args, **kwargs):
-        ...
+    def run(self, *args, **kwargs): ...
 
 
 class BaseStage(Stage, PickleSerializer, SQLiteCache):
@@ -80,7 +79,9 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
     def get_run_folder(self):
         if self.job_id is None:
-            raise ValueError("job_id has not been set. Please ensure set_job_id is called before running the stage.")
+            raise ValueError(
+                "job_id has not been set. Please ensure set_job_id is called before running the stage."
+            )
         return os.path.join(LARGE_DATA_PATH, self.job_id)
 
     def _get_data_path(self, name):
@@ -91,7 +92,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     def read(self, k: str) -> object:
         file_path = SQLiteCache.read(self, k)
         if file_path and os.path.exists(file_path):
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 return pickle.load(f)
         else:
             logging.warning(f"数据文件不存在: {file_path}")
@@ -100,7 +101,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     def write(self, k: str, v: object) -> None:
         file_path = self._get_data_path(k)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, 'wb') as f:
+        with open(file_path, "wb") as f:
             pickle.dump(v, f)
         SQLiteCache.write(self, k, file_path)
         logging.info(f"数据{k}已写入文件: {file_path}")
@@ -111,7 +112,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         返回一个唯一的名称，由类名和实例的UUID组成。
         """
         return f"{self.__class__.__name__}_{self.stage_idx}"
-    
+
     def set_input(self, input_data_name: str):
         """
         设置单个输入数据名称。
@@ -133,7 +134,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             raise TypeError("input_data_name类型不匹配")
         logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
-    
+
     def add_input(self, input_data_name: str):
         """
         添加一个输入数据名称。
@@ -163,11 +164,11 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         异常:
             AssertionError: 如果输入不是列表类型。
         """
-        assert(isinstance(input_data_names, list))
+        assert isinstance(input_data_names, list)
         self.input_data_names = input_data_names
         logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
-    
+
     def set_n_outputs(self):
         """
         设置默认输出数据名称。
@@ -179,10 +180,12 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         返回:
             self: 返回实例本身，支持链式调用。
         """
-        self.output_data_names = [f"{self.name}_output_{i}" for i in range(self._n_outputs)]
+        self.output_data_names = [
+            f"{self.name}_output_{i}" for i in range(self._n_outputs)
+        ]
         logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
         return self
-    
+
     def set_pipeline(self, pipeline):
         self.pipeline = pipeline
         pipeline.add_stage(self)  # 将当前 stage 添加到 pipeline
@@ -234,7 +237,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                     self.write(o_n, o)
         else:
             logging.warning(f"stage: {self.name} 无任何输出")
-    
+
 
 class CustomStage(BaseStage):
     """
@@ -301,7 +304,7 @@ class DiskCacheStage(Stage, PickleSerializer, DiskCache):
         when subclassing this class.
         """
         return self.__class__.__name__
-    
+
 
 class StageExecutor(PickleSerializer, SQLiteCache):
     """
@@ -317,26 +320,27 @@ class StageExecutor(PickleSerializer, SQLiteCache):
     db_path: Path to the SQLite database.
     stages: The stages that are currently in progress.
     """
+
     def __init__(self, db_path, stages):
         SQLiteCache.__init__(self, db_path)
 
-        self.pipeline = self.read('pipeline')
+        self.pipeline = self.read("pipeline")
         self.stages = stages
 
     def __enter__(self):
-        self.write('in_progress', self.serialize(self.stages))
+        self.write("in_progress", self.serialize(self.stages))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        completed = self.deserialize(self.read('in_progress'))
-        current_done = self.read('done')
+        completed = self.deserialize(self.read("in_progress"))
+        current_done = self.read("done")
         if current_done is None:
             current_done = []
         else:
             current_done = self.deserialize(current_done)
         current_done += completed
-        self.write('done', self.serialize(current_done))
-        self.delete('in_progress')
+        self.write("done", self.serialize(current_done))
+        self.delete("in_progress")
 
     @staticmethod
     def execute(fn: callable, *args, **kwargs) -> None:
@@ -348,5 +352,7 @@ def stage(n_outputs: int):
     def decorator(stage_function: callable):
         def wrapper(*args, **kwargs) -> DecoratorStage:
             return DecoratorStage(stage_function, n_outputs, *args, **kwargs)
+
         return wrapper
+
     return decorator

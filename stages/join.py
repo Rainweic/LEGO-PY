@@ -10,7 +10,7 @@ def join(left_df: pd.DataFrame, right_df: pd.DataFrame, on: list[str], how: str)
 
 
 @stage(n_outputs=1)
-def multi_join(dfs: list[pd.DataFrame], on: list[str], how: str = 'left'):
+def multi_join(dfs: list[pd.DataFrame], on: list[str], how: str = "left"):
     """
     对多个DataFrame进行连续join操作。
 
@@ -22,6 +22,7 @@ def multi_join(dfs: list[pd.DataFrame], on: list[str], how: str = 'left'):
     返回:
     pd.DataFrame: join后的结果DataFrame。
     """
+
     def join_two_dfs(left, right):
         return pd.merge(left, right, on=on, how=how)
 

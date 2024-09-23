@@ -19,7 +19,9 @@ class FilterStage(CustomStage):
         forward(df: DataFrame) -> DataFrame: 执行过滤操作并返回过滤后的 DataFrame。
     """
 
-    def __init__(self, items: list = None, like: str = None, regex: str = None, axis: int = None):
+    def __init__(
+        self, items: list = None, like: str = None, regex: str = None, axis: int = None
+    ):
         super().__init__(n_outputs=1)
         self.items = items
         self.list = list
@@ -28,4 +30,6 @@ class FilterStage(CustomStage):
         self.axis = axis
 
     def forward(self, df: DataFrame) -> DataFrame:
-        return df.filter(items=self.items, like=self.like, regex=self.regex, axis=self.axis)
+        return df.filter(
+            items=self.items, like=self.like, regex=self.regex, axis=self.axis
+        )

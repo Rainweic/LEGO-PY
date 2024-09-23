@@ -64,7 +64,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         我们使用SQLite数据库作为Pipeline的底层缓存。
         """
-        self.db_path = 'pipeline.db'
+        self.db_path = "pipeline.db"
         SQLiteCache.__init__(self, self.db_path)
         self.job_id = self.generate_job_id()
         self.stage_counter = 0
@@ -92,7 +92,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
              生成器,其中每个元素是同一组中的节点列表。
         """
 
-        logging.info('计算pipeline DAG的分组拓扑排序')
+        logging.info("计算pipeline DAG的分组拓扑排序")
         indegree_map = {v: d for v, d in self.pipeline.in_degree() if d > 0}
         zero_indegree = [v for v, d in self.pipeline.in_degree() if d == 0]
         while zero_indegree:
@@ -123,7 +123,9 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
 
         if not isinstance(stage, BaseStage):
-            raise InvalidStageTypeException('请确保您的阶段是pydags.stage.BaseStage的子类')
+            raise InvalidStageTypeException(
+                "请确保您的阶段是pydags.stage.BaseStage的子类"
+            )
 
         self.pipeline.add_node(stage.name, stage_wrapper=stage)
 
@@ -131,7 +133,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             self.pipeline.add_edges_from([(preceding_stage.name, stage.name)])
 
         if not nx.is_directed_acyclic_graph(self.pipeline):
-            raise DAGVerificationException('Pipeline不再是一个DAG!')
+            raise DAGVerificationException("Pipeline不再是一个DAG!")
 
     def run_stage(self, stage_name: str) -> None:
         """
@@ -142,7 +144,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             stage_name <str>: pipeline中阶段的名称。
         """
         # logging.INFO(f"[Running stage] {stage_name}")
-        self.pipeline.nodes[stage_name]['stage_wrapper'].run()
+        self.pipeline.nodes[stage_name]["stage_wrapper"].run()
 
     def _compute_pipeline_hash(self):
         """
@@ -150,27 +152,29 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         nodes = list(self.pipeline.nodes)
         edges = list(self.pipeline.edges)
-        pipeline_repr = json.dumps({'nodes': nodes, 'edges': edges}, sort_keys=True)
+        pipeline_repr = json.dumps({"nodes": nodes, "edges": edges}, sort_keys=True)
         return hashlib.md5(pipeline_repr.encode()).hexdigest()
 
     def _save_checkpoint(self):
         """
         保存检查点到SQLite数据库。
         """
-        checkpoint_data = json.dumps({
-            'completed_stages': list(self.completed_stages),
-            'pipeline_hash': self._compute_pipeline_hash()
-        })
-        self.write('pipeline_checkpoint', checkpoint_data)
+        checkpoint_data = json.dumps(
+            {
+                "completed_stages": list(self.completed_stages),
+                "pipeline_hash": self._compute_pipeline_hash(),
+            }
+        )
+        self.write("pipeline_checkpoint", checkpoint_data)
 
     def _load_checkpoint(self):
         """
         从SQLite数据库加载检查点。
         """
-        checkpoint = self.read('pipeline_checkpoint')
+        checkpoint = self.read("pipeline_checkpoint")
         if checkpoint:
             data = json.loads(checkpoint)
-            self.completed_stages = set(data['completed_stages'])
+            self.completed_stages = set(data["completed_stages"])
             return data
         return None
 
@@ -178,9 +182,15 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         删除检查点。
         """
-        self.delete('pipeline_checkpoint')
+        self.delete("pipeline_checkpoint")
 
-    def start(self, num_cores: int = None, visualize: bool = False, save_path: bool = True, force_rerun: bool = False) -> None:
+    def start(
+        self,
+        num_cores: int = None,
+        visualize: bool = False,
+        save_path: bool = True,
+        force_rerun: bool = False,
+    ) -> None:
         """
         执行pipeline(及其所有组成阶段)的方法。执行顺序由分组拓扑排序定义。
         如果num_cores是正整数,则组内的阶段将并行执行(跨核心)。
@@ -194,8 +204,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if visualize:
             self.visualize(save_path=save_path)
 
-        logging.info('序列化pipeline并写入SQLite')
-        self.write('pipeline', self.serialize(self.pipeline))
+        logging.info("序列化pipeline并写入SQLite")
+        self.write("pipeline", self.serialize(self.pipeline))
 
         if force_rerun:
             logging.info("强制重跑所有阶段")
@@ -204,7 +214,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         else:
             checkpoint_data = self._load_checkpoint()
             if checkpoint_data:
-                previous_pipeline_hash = checkpoint_data['pipeline_hash']
+                previous_pipeline_hash = checkpoint_data["pipeline_hash"]
                 logging.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
             else:
                 previous_pipeline_hash = None
@@ -212,15 +222,20 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             current_pipeline_hash = self._compute_pipeline_hash()
 
             # 如果pipeline发生改动，重头运行
-            if previous_pipeline_hash and previous_pipeline_hash != current_pipeline_hash:
+            if (
+                previous_pipeline_hash
+                and previous_pipeline_hash != current_pipeline_hash
+            ):
                 logging.info("Pipeline 发生改动，重头运行")
                 self.completed_stages = set()
 
         sorted_grouped_stages = self.topological_sort_grouped()
         for group in sorted_grouped_stages:
-            logging.info('处理组: %s', group)
+            logging.info("处理组: %s", group)
 
-            stages_to_run = [stage for stage in group if stage not in self.completed_stages]
+            stages_to_run = [
+                stage for stage in group if stage not in self.completed_stages
+            ]
 
             if num_cores:
                 pool = ThreadPool(num_cores)
@@ -256,7 +271,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         img = mpimg.imread(sio)
         plt.figure(figsize=(12, 8))  # 设置图像大小
         plt.imshow(img)
-        plt.axis('off')  # 关闭坐标轴
+        plt.axis("off")  # 关闭坐标轴
 
         # 保存图像到本地
         if save_path:
@@ -266,7 +281,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             # 确保保存路径的目录存在
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-            plt.savefig(save_path, format='png', dpi=300, bbox_inches='tight')
+            plt.savefig(save_path, format="png", dpi=300, bbox_inches="tight")
             print(f"Pipeline visualization saved to: {save_path}")
 
         else:
