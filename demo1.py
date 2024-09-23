@@ -60,4 +60,4 @@ def build_pipeline():
 
 pipeline = build_pipeline()
 
-pipeline.start(visualize=True)
+pipeline.start(visualize=True, save_path=True)
