@@ -68,6 +68,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         SQLiteCache.__init__(self, self.db_path)
         self.job_id = self.generate_job_id()
         self.stage_counter = 0
+        self.stages_to_add = list()
         self.completed_stages = set()
 
     def generate_job_id(self):
@@ -79,7 +80,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # 在退出上下文时可以添加一些清理操作
-        pass
+        for stage in self.stages_to_add:
+            self.add_stage(stage=stage)
 
     def topological_sort_grouped(self) -> typing.Generator:
         """

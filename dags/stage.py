@@ -111,7 +111,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         返回一个唯一的名称，由类名和实例的UUID组成。
         """
-        return f"{self.__class__.__name__}_{self.stage_idx}"
+        return f"{self.stage_idx}_{self.__class__.__name__}"
 
     def set_input(self, input_data_name: str):
         """
@@ -191,7 +191,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self.job_id = pipeline.job_id
         self.stage_idx = pipeline.get_cur_stage_idx()
         self.set_n_outputs()
-        pipeline.add_stage(self)  # 将当前 stage 添加到 pipeline
+        pipeline.stages_to_add.append(self)
         return self
 
     def forward(self, *args, **kwargs):
@@ -269,7 +269,7 @@ class DecoratorStage(BaseStage):
     @property
     def name(self) -> str:
         """Name is given by the name of the user-defined decorated function."""
-        return f"{self.stage_function.__name__}_{self.stage_idx}"
+        return f"{self.stage_idx}_{self.stage_function.__name__}"
 
     def forward(self, *args, **kwargs) -> None:
         """
