@@ -13,14 +13,17 @@ pipeline中可以并行运行的一组阶段称为"Group"。在串行模式下,G
 然后可以从SQLite读取此信息并在下游使用。
 """
 
-from io import BytesIO
-from multiprocessing.pool import ThreadPool
+import os
 import typing
 import logging
+import datetime
 
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+
+from io import BytesIO
+from multiprocessing.pool import ThreadPool
 
 from .serialization import CloudPickleSerializer
 from .cache import SQLiteCache
@@ -61,6 +64,11 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         self.db_path = 'pipeline.db'
         SQLiteCache.__init__(self, self.db_path)
+        self.job_id = self.generate_job_id()
+
+    def generate_job_id(self):
+        self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self.job_id
 
     def topological_sort_grouped(self) -> typing.Generator:
         """
@@ -101,6 +109,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if not isinstance(stage, BaseStage):
             raise InvalidStageTypeException('请确保您的阶段是pydags.stage.BaseStage的子类')
 
+        stage.set_job_id(self.job_id)
         self.pipeline.add_node(stage.name, stage_wrapper=stage)
 
         for preceding_stage in stage.preceding_stages:
@@ -134,7 +143,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         self.pipeline.nodes[stage_name]['stage_wrapper'].run()
 
-    def start(self, num_cores: int = None, visualize: bool = False) -> None:
+    def start(self, num_cores: int = None, visualize: bool = False, save_path: bool = True) -> None:
         """
         执行pipeline(及其所有组成阶段)的方法。执行顺序由分组拓扑排序定义。
         如果num_cores是正整数,则组内的阶段将并行执行(跨核心)。
@@ -145,7 +154,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
 
         if visualize:
-            self.visualize()
+            self.visualize(save_path=save_path)
 
         logging.info('序列化pipeline并写入SQLite')
         self.write('pipeline', self.serialize(self.pipeline))
@@ -153,8 +162,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         sorted_grouped_stages = self.topological_sort_grouped()
         for group in sorted_grouped_stages:
             logging.info('处理组: %s', group)
+
             if num_cores:
-                # TODO 并行时read可能会取串了
                 pool = ThreadPool(num_cores)
                 with StageExecutor(self.db_path, group) as stage_executor:
                     stage_executor.execute(pool.map, self.run_stage, group)
@@ -164,9 +173,12 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                         stage_executor.execute(self.run_stage, stage)
         self.delete('done')
 
-    def visualize(self):
+    def visualize(self, save_path=None):
         """
-        通过渲染matplotlib图形来可视化pipeline/DAG的方法。
+        通过渲染matplotlib图形来可视化pipeline/DAG的方法，并可选择保存到本地。
+
+        参数:
+        save_path (str, optional): 保存图像的路径。如果为None，则使用默认路径。
 
         参考:
             https://stackoverflow.com/questions/10379448/plotting-directed-graphs-in-python-in-a-way-that-show-all-edges-separately
@@ -180,6 +192,20 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         sio.seek(0)
 
         img = mpimg.imread(sio)
+        plt.figure(figsize=(12, 8))  # 设置图像大小
         plt.imshow(img)
+        plt.axis('off')  # 关闭坐标轴
 
-        plt.show()
+        # 保存图像到本地
+        if save_path:
+            # 使用 job_id 创建默认的保存路径
+            save_path = os.path.join("./visualizations", f"pipeline_{self.job_id}.png")
+
+            # 确保保存路径的目录存在
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            plt.savefig(save_path, format='png', dpi=300, bbox_inches='tight')
+            print(f"Pipeline visualization saved to: {save_path}")
+
+        else:
+            plt.show()

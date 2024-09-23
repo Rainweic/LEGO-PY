@@ -26,6 +26,8 @@ def hdfs_download(path: str, overwrite: bool):
     if os.path.exists(local_path):
         if overwrite:
             download(path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, 'hadoop')
+        else:
+            logging.warn(f"{local_path}已仍存在，不再下载")
     else:
         download(path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, 'hadoop')
     return local_path
@@ -33,14 +35,19 @@ def hdfs_download(path: str, overwrite: bool):
 
 class HDFSCSVReadStage(CustomStage):
 
-    def __init__(self, path: str, overwrite: bool = True, *args, **kwargs):
+    def __init__(self, path: str, select_cols: list = [], overwrite: bool = True, *args, **kwargs):
         super().__init__(n_outputs=1)
         self.path = path
         self.overwrite = overwrite
+        self.select_cols = select_cols
 
     @property
     def reader(self):
         return pd.read_csv
+    
+    @property
+    def file_type(self):
+        return ".csv"
     
     def forward(self, *args, **kwargs) -> pd.DataFrame:
 
@@ -50,15 +57,17 @@ class HDFSCSVReadStage(CustomStage):
         df_list = []
         for root, dirs, files in os.walk(local_path):
             for file in files:
-                if file.endswith('.csv'):
+                if file.endswith(self.file_type):
                     file_path = os.path.join(root, file)
                     df = self.reader(file_path)
+                    if self.select_cols:
+                        df = df[self.select_cols]
                     df_list.append(df)
         
         if df_list:
             df = pd.concat(df_list, ignore_index=True)
         else:
-            df = pd.DataFrame()  # 如果没有找到CSV文件，返回空的DataFrame
+            raise RuntimeError(f"Can not find any {self.file_type} files")
         
         return df
     
@@ -66,8 +75,12 @@ class HDFSCSVReadStage(CustomStage):
 class HDFSORCReadStage(HDFSCSVReadStage):
 
     @property
-    def reader():
+    def reader(self):
         return pd.read_orc
+    
+    @property
+    def file_type(self):
+        return ".orc"
     
 
 # @stage

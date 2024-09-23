@@ -14,10 +14,17 @@ from abc import ABC, abstractmethod
 import uuid
 import logging
 import diskcache
-import pandas as pd
+import os
+import pickle
+import hashlib
+import json
 
+from .cache import SQLiteCache
 from .serialization import PickleSerializer
 from .cache import SQLiteCache, DiskCache
+
+
+LARGE_DATA_PATH = "./cache"
 
 
 class Stage(ABC):
@@ -66,21 +73,45 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     def __init__(self):
         SQLiteCache.__init__(self, db_path="./pipeline.db")
         Stage.__init__(self)
-        self._uuid = str(uuid.uuid4())[:8] 
+        self._uuid = str(uuid.uuid4())[:8]  # 生成一个短的UUID
+        self.job_id = None
+
+    def set_job_id(self, job_id):
+        self.job_id = job_id
+
+    def get_run_folder(self):
+        if self.job_id is None:
+            raise ValueError("job_id has not been set. Please ensure set_job_id is called before running the stage.")
+        return os.path.join(LARGE_DATA_PATH, self.job_id)
+
+    def _get_data_path(self, name):
+        """生成用于存储数据的文件路径"""
+        hash_name = hashlib.md5(name.encode()).hexdigest()
+        return os.path.join(self.get_run_folder(), f"{hash_name}.pkl")
 
     def read(self, k: str) -> object:
-        return self.deserialize(SQLiteCache.read(self, k))
+        file_path = SQLiteCache.read(self, k)
+        if file_path and os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                return pickle.load(f)
+        else:
+            logging.warning(f"数据文件不存在: {file_path}")
+            return None
 
     def write(self, k: str, v: object) -> None:
-        SQLiteCache.write(self, k, self.serialize(v))
+        file_path = self._get_data_path(k)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'wb') as f:
+            pickle.dump(v, f)
+        SQLiteCache.write(self, k, file_path)
+        logging.info(f"数据{k}已写入文件: {file_path}")
 
     @property
     def name(self) -> str:
         """
-        The name is the final subclass (i.e. the name class defined by the user
-        when subclassing this class.
+        返回一个唯一的名称，由类名和实例的UUID组成。
         """
-        return self.__class__.__name__
+        return f"{self.__class__.__name__}_{self._uuid}"
     
     def set_input(self, input_data_name: str):
         """
@@ -138,18 +169,20 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
     
-    def set_n_outputs(self, n_outputs):
+    def set_n_outputs(self, n_outputs, force_new=False):
         """
         设置默认输出数据名称。
 
         参数:
             n_outputs (int): 输出数量。
+            force_new (bool): 是否强制生成新的输出名称。
 
         返回:
             self: 返回实例本身，支持链式调用。
         """
-        self._n_outputs = n_outputs
-        self.output_data_names = [f"{self.name}_{self._uuid}_output_{i}" for i in range(n_outputs)]
+        if not self.output_data_names or force_new:
+            self._n_outputs = n_outputs
+            self.output_data_names = [f"{self.name}_output_{i}" for i in range(n_outputs)]
         logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
         return self
 
@@ -171,11 +204,18 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             *args: 可变位置参数。
             **kwargs: 可变关键字参数。
         """
+
         if self.input_data_names:
             input_datas = []
             for name in self.input_data_names:
-                data = self.read(name)
-                input_datas.append(data)
+                try:
+                    data = self.read(name)
+                    if data is None:
+                        raise ValueError(f"无法读取输入数据: {name}")
+                    input_datas.append(data)
+                except Exception as e:
+                    logging.error(f"Stage {self.name} 读取输入数据 {name} 时出错: {e}")
+                    raise RuntimeError(e)
             outs = self.forward(*input_datas, *args, **kwargs)
         else:
             logging.warning(f"stage: {self.name} 无任何输入")
@@ -223,7 +263,7 @@ class DecoratorStage(BaseStage):
     @property
     def name(self) -> str:
         """Name is given by the name of the user-defined decorated function."""
-        return self.stage_function.__name__
+        return f"{self.stage_function.__name__}_{self._uuid}"
 
     def forward(self, *args, **kwargs) -> None:
         """
