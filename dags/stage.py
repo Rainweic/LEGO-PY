@@ -11,13 +11,11 @@ The other is by subclassing Stage, SQLiteStage, DiskCacheStage.
 
 from abc import ABC, abstractmethod
 
-import uuid
 import logging
 import diskcache
 import os
 import pickle
 import hashlib
-import json
 
 from .cache import SQLiteCache
 from .serialization import PickleSerializer
@@ -70,11 +68,12 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     input_data_names: list = []  # 输入数据名称列表
     output_data_names: list = []  # 输出数据名称列表
 
-    def __init__(self):
+    def __init__(self, n_outputs):
         SQLiteCache.__init__(self, db_path="./pipeline.db")
         Stage.__init__(self)
-        self._uuid = str(uuid.uuid4())[:8]  # 生成一个短的UUID
         self.job_id = None
+        self.stage_idx = None
+        self._n_outputs = n_outputs
 
     def set_job_id(self, job_id):
         self.job_id = job_id
@@ -111,7 +110,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         返回一个唯一的名称，由类名和实例的UUID组成。
         """
-        return f"{self.__class__.__name__}_{self._uuid}"
+        return f"{self.__class__.__name__}_{self.stage_idx}"
     
     def set_input(self, input_data_name: str):
         """
@@ -169,7 +168,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
     
-    def set_n_outputs(self, n_outputs, force_new=False):
+    def set_n_outputs(self):
         """
         设置默认输出数据名称。
 
@@ -180,10 +179,16 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         返回:
             self: 返回实例本身，支持链式调用。
         """
-        if not self.output_data_names or force_new:
-            self._n_outputs = n_outputs
-            self.output_data_names = [f"{self.name}_output_{i}" for i in range(n_outputs)]
+        self.output_data_names = [f"{self.name}_output_{i}" for i in range(self._n_outputs)]
         logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
+        return self
+    
+    def set_pipeline(self, pipeline):
+        self.pipeline = pipeline
+        pipeline.add_stage(self)  # 将当前 stage 添加到 pipeline
+        self.job_id = pipeline.job_id
+        self.stage_idx = pipeline.get_cur_stage_idx()
+        self.set_n_outputs()
         return self
 
     def forward(self, *args, **kwargs):
@@ -238,8 +243,7 @@ class CustomStage(BaseStage):
     """
 
     def __init__(self, n_outputs):
-        super().__init__()
-        self.set_n_outputs(n_outputs)
+        super().__init__(n_outputs=n_outputs)
 
 
 class DecoratorStage(BaseStage):
@@ -253,17 +257,16 @@ class DecoratorStage(BaseStage):
     """
 
     def __init__(self, stage_function: callable, n_outputs: int, *args, **kwargs):
-        super().__init__()
+        super().__init__(n_outputs=n_outputs)
 
         self.stage_function = stage_function
         self.args = args
         self.kwargs = kwargs
-        self.set_n_outputs(n_outputs)
 
     @property
     def name(self) -> str:
         """Name is given by the name of the user-defined decorated function."""
-        return f"{self.stage_function.__name__}_{self._uuid}"
+        return f"{self.stage_function.__name__}_{self.stage_idx}"
 
     def forward(self, *args, **kwargs) -> None:
         """
