@@ -17,6 +17,8 @@ import os
 import typing
 import logging
 import datetime
+import hashlib
+import json
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -65,10 +67,19 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.db_path = 'pipeline.db'
         SQLiteCache.__init__(self, self.db_path)
         self.job_id = self.generate_job_id()
+        self.stage_counter = 0
+        self.completed_stages = set()
 
     def generate_job_id(self):
         self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         return self.job_id
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # 在退出上下文时可以添加一些清理操作
+        pass
 
     def topological_sort_grouped(self) -> typing.Generator:
         """
@@ -94,6 +105,11 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                         new_zero_indegree.append(child)
             zero_indegree = new_zero_indegree
 
+    def get_cur_stage_idx(self):
+        _idx = self.stage_counter
+        self.stage_counter += 1
+        return _idx
+
     def add_stage(self, stage: BaseStage) -> None:
         """
         向pipeline添加阶段的方法。如果阶段已经存在于DAG中,则不会添加
@@ -109,7 +125,6 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if not isinstance(stage, BaseStage):
             raise InvalidStageTypeException('请确保您的阶段是pydags.stage.BaseStage的子类')
 
-        stage.set_job_id(self.job_id)
         self.pipeline.add_node(stage.name, stage_wrapper=stage)
 
         for preceding_stage in stage.preceding_stages:
@@ -117,21 +132,6 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
         if not nx.is_directed_acyclic_graph(self.pipeline):
             raise DAGVerificationException('Pipeline不再是一个DAG!')
-
-    def add_stages(self, stages: typing.List[BaseStage]) -> None:
-        """
-        向pipeline添加阶段列表的方法。如果段已经存在于DAG中,则不会添加
-        (尽管networkx可以处理这种情况)。阶段根据其名称(通常是用户定义的类或函数名称)
-        和一个名为'stage_wrapper'的属性定义,该属性是BaseStage子类的实际实例。
-        此对象用于运行相关的DAG阶段。
-
-        此外,我们在DAG中添加阶段与其前置阶段(由用户定义)之间的边。
-
-        最后,进行检查以确保在添加阶段后,DAG仍然确实是一个DAG。
-        """
-
-        for stage in stages:
-            self.add_stage(stage)
 
     def run_stage(self, stage_name: str) -> None:
         """
@@ -141,10 +141,46 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         参数:
             stage_name <str>: pipeline中阶段的名称。
         """
-        logging.INFO(f"[Running stage] {stage_name}")
+        # logging.INFO(f"[Running stage] {stage_name}")
         self.pipeline.nodes[stage_name]['stage_wrapper'].run()
 
-    def start(self, num_cores: int = None, visualize: bool = False, save_path: bool = True) -> None:
+    def _compute_pipeline_hash(self):
+        """
+        计算当前pipeline的hash值，用于检查pipeline是否发生改动。
+        """
+        nodes = list(self.pipeline.nodes)
+        edges = list(self.pipeline.edges)
+        pipeline_repr = json.dumps({'nodes': nodes, 'edges': edges}, sort_keys=True)
+        return hashlib.md5(pipeline_repr.encode()).hexdigest()
+
+    def _save_checkpoint(self):
+        """
+        保存检查点到SQLite数据库。
+        """
+        checkpoint_data = json.dumps({
+            'completed_stages': list(self.completed_stages),
+            'pipeline_hash': self._compute_pipeline_hash()
+        })
+        self.write('pipeline_checkpoint', checkpoint_data)
+
+    def _load_checkpoint(self):
+        """
+        从SQLite数据库加载检查点。
+        """
+        checkpoint = self.read('pipeline_checkpoint')
+        if checkpoint:
+            data = json.loads(checkpoint)
+            self.completed_stages = set(data['completed_stages'])
+            return data
+        return None
+
+    def _delete_checkpoint(self):
+        """
+        删除检查点。
+        """
+        self.delete('pipeline_checkpoint')
+
+    def start(self, num_cores: int = None, visualize: bool = False, save_path: bool = True, force_rerun: bool = False) -> None:
         """
         执行pipeline(及其所有组成阶段)的方法。执行顺序由分组拓扑排序定义。
         如果num_cores是正整数,则组内的阶段将并行执行(跨核心)。
@@ -152,6 +188,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
         参数:
             num_cores [<int>, <None>]: 要分配的核心数。
+            force_rerun [<bool>]: 是否强制重跑所有阶段。
         """
 
         if visualize:
@@ -160,19 +197,43 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         logging.info('序列化pipeline并写入SQLite')
         self.write('pipeline', self.serialize(self.pipeline))
 
+        if force_rerun:
+            logging.info("强制重跑所有阶段")
+            self.completed_stages = set()
+            self._delete_checkpoint()
+        else:
+            checkpoint_data = self._load_checkpoint()
+            if checkpoint_data:
+                previous_pipeline_hash = checkpoint_data['pipeline_hash']
+                logging.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
+            else:
+                previous_pipeline_hash = None
+
+            current_pipeline_hash = self._compute_pipeline_hash()
+
+            # 如果pipeline发生改动，重头运行
+            if previous_pipeline_hash and previous_pipeline_hash != current_pipeline_hash:
+                logging.info("Pipeline 发生改动，重头运行")
+                self.completed_stages = set()
+
         sorted_grouped_stages = self.topological_sort_grouped()
         for group in sorted_grouped_stages:
             logging.info('处理组: %s', group)
 
+            stages_to_run = [stage for stage in group if stage not in self.completed_stages]
+
             if num_cores:
                 pool = ThreadPool(num_cores)
-                with StageExecutor(self.db_path, group) as stage_executor:
-                    stage_executor.execute(pool.map, self.run_stage, group)
+                with StageExecutor(self.db_path, stages_to_run) as stage_executor:
+                    stage_executor.execute(pool.map, self.run_stage, stages_to_run)
             else:
-                for stage in group:
+                for stage in stages_to_run:
                     with StageExecutor(self.db_path, [stage]) as stage_executor:
                         stage_executor.execute(self.run_stage, stage)
-        self.delete('done')
+                    self.completed_stages.add(stage)
+                    self._save_checkpoint()  # 在每个阶段运行完后保存检查点
+
+        self._delete_checkpoint()
 
     def visualize(self, save_path=None):
         """
