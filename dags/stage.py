@@ -87,7 +87,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     def _get_data_path(self, name):
         """生成用于存储数据的文件路径"""
         hash_name = hashlib.md5(name.encode()).hexdigest()
-        return os.path.join(self.get_run_folder(), f"{hash_name}.pkl")
+        return os.path.join(self.get_run_folder(), f"{name}_{hash_name}.pkl")
 
     def read(self, k: str) -> object:
         file_path = SQLiteCache.read(self, k)

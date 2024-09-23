@@ -26,7 +26,7 @@ def filter_sample_label(df):
     df_label_0 = df[df["label_value"] == 0]
 
     # 正负样本1:1
-    n_samples = min(df_label_0.shape[0], df_label_1.shape[0])
+    n_samples = min(df_label_0.shape[0], df_label_1.shape[0], n_all_samples // 2)
     df = pd.concat([df_label_0.sample(n_samples), df_label_1.sample(n_samples)], axis=0)
 
     df = df[["member_id", "label_value", "dt"]]
@@ -75,7 +75,7 @@ def build_pipeline():
     read_data_stage_2 = HDFSORCReadStage(path=path, select_cols=["member_id", "is_alt_member"], overwrite=False)
 
     # start_days_30d 用户启动天数_30天
-    path = f"/projects/growth/prod/user-reaxch-label/data/coupon-control/base/login_order_labels/{sample_date}"
+    path = f"/projects/growth/prod/user-reach-label/data/coupon-control/base/login_order_labels/{sample_date}"
     read_data_stage_3 = HDFSORCReadStage(path=path, select_cols=["member_id", "start_days_30d"], overwrite=False)
 
     # is_start_no_order_prefer_user is_coupon_list_bw_no_order_prefer_user
@@ -108,7 +108,7 @@ def build_pipeline():
 
     
     # active_user_churn_label 流失概率预测等级
-    active_user_churn_label_path = f"/projects/growth/prod/wakeup_model/churn_prob/predict_result/{sample_date}"
+    active_user_churn_label_path = f"/projects/growth/prod/wakeup_model/churn_prob/predict_result/{sample_date}/part-0.csv"
     read_data_stage_8 = HDFSCSVReadStage(path=active_user_churn_label_path, select_cols=["active_user_churn_label"], overwrite=False)
 
     # join到label上
@@ -156,6 +156,7 @@ def build_pipeline():
 
 # 运行
 if __name__ == "__main__":
+    n_all_samples = 200_000
     sample_date = "2024-09-05"
     pipeline = build_pipeline()
-    pipeline.start()
+    pipeline.start(visualize=True, save_path=True)

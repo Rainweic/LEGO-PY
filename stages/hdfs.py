@@ -4,9 +4,10 @@ import hashlib
 import logging
 from utils.hdfs_v3 import download
 from dags.stage import CustomStage
+from tqdm import tqdm
 
 
-CACHE_PATH = "./cache"
+CACHE_PATH = "./cache/download"
 
 
 def hdfs_download(path: str, overwrite: bool):
@@ -25,11 +26,13 @@ def hdfs_download(path: str, overwrite: bool):
     
     if os.path.exists(local_path):
         if overwrite:
-            download(path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, 'hadoop')
+            download(path, local_path, "obs://lts-bigdata-hive-obs-prod/", 2, True, 'hadoop')
+            logging.info("下载完成")
         else:
             logging.warn(f"{local_path}已仍存在，不再下载")
     else:
-        download(path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, 'hadoop')
+        download(path, local_path, "obs://lts-bigdata-hive-obs-prod/", 2, True, 'hadoop')
+        logging.info("下载完成")
     return local_path
 
 
@@ -53,16 +56,24 @@ class HDFSCSVReadStage(CustomStage):
 
         local_path = hdfs_download(self.path, self.overwrite)
     
-        # 遍历目录，全部读取csv文件并concat
         df_list = []
-        for root, dirs, files in os.walk(local_path):
-            for file in files:
-                if file.endswith(self.file_type):
-                    file_path = os.path.join(root, file)
-                    df = self.reader(file_path)
-                    if self.select_cols:
-                        df = df[self.select_cols]
-                    df_list.append(df)
+        total_files = sum([len(files) for _, _, files in os.walk(local_path)])
+        
+        with tqdm(total=total_files, desc="Reading df", unit="file") as pbar:
+            for root, dirs, files in os.walk(local_path):
+                for file in files:
+                    if file.endswith(self.file_type):
+                        file_path = os.path.join(root, file)
+                        try:
+                            df = self.reader(file_path)
+                            if self.select_cols:
+                                df = df[self.select_cols]
+                            df_list.append(df)
+                        except pd.errors.ParserError as e:
+                            logging.error(f"stage {self.name} read {file_path} error: {e}")
+                            raise e
+                        finally:
+                            pbar.update(1)
         
         if df_list:
             df = pd.concat(df_list, ignore_index=True)
