@@ -141,6 +141,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         参数:
             stage_name <str>: pipeline中阶段的名称。
         """
+        logging.INFO(f"[Running stage] {stage_name}")
         self.pipeline.nodes[stage_name]['stage_wrapper'].run()
 
     def start(self, num_cores: int = None, visualize: bool = False, save_path: bool = True) -> None:
