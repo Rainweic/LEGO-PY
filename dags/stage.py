@@ -188,10 +188,10 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
     def set_pipeline(self, pipeline):
         self.pipeline = pipeline
-        pipeline.add_stage(self)  # 将当前 stage 添加到 pipeline
         self.job_id = pipeline.job_id
         self.stage_idx = pipeline.get_cur_stage_idx()
         self.set_n_outputs()
+        pipeline.add_stage(self)  # 将当前 stage 添加到 pipeline
         return self
 
     def forward(self, *args, **kwargs):
