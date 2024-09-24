@@ -16,6 +16,7 @@ import diskcache
 import os
 import pickle
 import hashlib
+from tqdm import tqdm
 
 from .cache import SQLiteCache
 from .serialization import PickleSerializer
@@ -215,14 +216,14 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
         if self.input_data_names:
             input_datas = []
-            for name in self.input_data_names:
+            for name in tqdm(self.input_data_names, desc="Reading input data"):
                 try:
                     data = self.read(name)
                     if data is None:
                         raise ValueError(f"无法读取输入数据: {name}")
                     input_datas.append(data)
                 except Exception as e:
-                    logging.error(f"Stage {self.name} 读取输入数据 {name} 时出错: {e}")
+                    logging.error(f"Stage {self.__class__.__name__} 读取输入数据 {name} 时出错: {e}")
                     raise RuntimeError(e)
             outs = self.forward(*input_datas, *args, **kwargs)
         else:
@@ -275,7 +276,7 @@ class DecoratorStage(BaseStage):
         """
         Stage is run by calling the wrapped user function with its arguments.
         """
-        return self.stage_function(*args, *self.args, **kwargs, **self.kwargs)
+        return self.stage_function(*(args + self.args), **kwargs.update(self.kwargs))
 
 
 class DiskCacheStage(Stage, PickleSerializer, DiskCache):

@@ -1,29 +1,27 @@
-import pandas as pd
-from functools import reduce
-
-from dags.stage import stage
-
-
-@stage(n_outputs=1)
-def join(left_df: pd.DataFrame, right_df: pd.DataFrame, on: list[str], how: str):
-    return left_df.join(right_df, on=on, how=how)
+import polars as pl
+from tqdm import tqdm
+from dags.stage import BaseStage
 
 
-@stage(n_outputs=1)
-def multi_join(dfs: list[pd.DataFrame], on: list[str], how: str = "left"):
-    """
-    对多个DataFrame进行连续join操作。
+class MultiJoin(BaseStage):
 
-    参数:
-    dfs (list[pd.DataFrame]): 要join的DataFrame列表，第一个DataFrame作为基础。
-    on (list[str]): 用于join的列名列表。
-    how (str): join的方式，默认为'left'。
+    def __init__(self, on: str, how: str):
+        super().__init__(n_outputs=1)
+        self.on = on
+        self.how = how
 
-    返回:
-    pd.DataFrame: join后的结果DataFrame。
-    """
+    def forward(self, *dfs: list[pl.LazyFrame]):
+        
+        def join_two_dfs(left: pl.LazyFrame, right: pl.LazyFrame):
+            if isinstance(left, pl.DataFrame):
+                left = left.lazy()
+            if isinstance(right, pl.DataFrame):
+                right = right.lazy()
+            return left.join(right, on=self.on, how=self.how).lazy()
+        
+        # 使用 tqdm 显示进度条
+        result = dfs[0]
+        for df in tqdm(dfs[1:], desc="Joining DataFrames"):
+            result = join_two_dfs(result, df)
 
-    def join_two_dfs(left, right):
-        return pd.merge(left, right, on=on, how=how)
-
-    return reduce(join_two_dfs, dfs)
+        return result
