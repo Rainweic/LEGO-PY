@@ -1,46 +1,68 @@
-import pandas as pd
-
+import uuid
+import logging
+import polars as pl
 from dags.stage import CustomStage
 
 
 class CastStage(CustomStage):
     """
-    CastStage 类用于将DataFrame中的特定列进行映射转换。
+    用于对LazyFrame中的列进行值映射的自定义Stage。
 
-    这个类继承自BaseStage,用于在数据处理管道中执行特征值的映射转换操作。
-    它可以将一个列中的值根据提供的映射字典进行转换,通常用于类别编码或值的重映射。
-
-    属性:
-        feature_name (str): 需要进行转换的特征(列)名称。
-        map (dict): 用于转换的映射字典,键为原始值,值为映射后的新值。
+    参数:
+        col_name (str): 需要进行映射的列名。
+        map (dict): 映射字典，键为原始值，值为映射后的值。
+        recover_ori_col (bool, 可选): 是否覆盖原始列名。默认为True。
+        out_col_name (str, 可选): 如果覆盖原始列名，该参数生效。
 
     方法:
-        forward(df: pd.DataFrame) -> pd.DataFrame: 执行映射转换操作。
+        forward(df: pl.LazyFrame) -> pl.LazyFrame:
+            对输入的LazyFrame进行值映射操作。
+
     """
 
-    def __init__(self, feature_name: str, map: dict):
-        """
-        初始化CastStage实例。
-
-        参数:
-            feature_name (str): 需要进行转换的特征(列)名称。
-            map (dict): 用于转换的映射字典,键为原始值,值为映射后的新值。
-        """
+    def __init__(self, col_name: str, map: dict, recover_ori_col: bool = True, out_col_name: str = None):
         super().__init__(n_outputs=1)
-        self.feature_name = feature_name
+        self.col_name = col_name
         self.map = map
+        self.recover_ori_col = recover_ori_col
+        self.out_col_name = out_col_name
 
-    def forward(self, df: pd.DataFrame) -> pd.DataFrame:
+    def forward(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """
-        对输入的DataFrame执行映射转换操作。
-
-        将指定列(feature_name)中的值根据提供的映射字典(map)进行转换。
+        对输入的LazyFrame进行值映射操作。
 
         参数:
-            df (pd.DataFrame): 输入的DataFrame。
+            df (pl.LazyFrame): 输入的LazyFrame。
 
         返回:
-            pd.DataFrame: 转换后的DataFrame。
+            pl.LazyFrame: 经过值映射操作后的LazyFrame。
+
         """
-        df[self.feature_name] = df[self.feature_name].map(self.map)
+
+        # 将映射字典转换为 SQL CASE WHEN 语句
+        case_when_statements = " ".join(
+            [f"""WHEN {self.col_name} == {k} THEN {v}""" for k, v in self.map.items()]
+        )
+        
+        if self.recover_ori_col:
+            tmp_out_col_name = "casewhen" + str(uuid.uuid4().hex[:8])
+            sql_query = f"""
+            SELECT 
+                *,
+                (CASE {case_when_statements} ELSE {self.col_name} END) AS {tmp_out_col_name}
+            FROM self
+            """.strip()
+            logging.info(sql_query)
+            df = df.lazy().sql(sql_query).drop(pl.col(self.col_name)).rename({tmp_out_col_name: self.col_name})
+
+        else:
+            sql_query = f"""
+            SELECT 
+                *,
+                (CASE {case_when_statements} ELSE {self.col_name} END) AS {self.out_col_name}
+            FROM self
+            """.strip()
+            logging.info(sql_query)
+            df = df.lazy().sql(sql_query)
+
         return df

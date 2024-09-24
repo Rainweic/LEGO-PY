@@ -14,7 +14,7 @@ def stage_2():
 
 @stage(n_outputs=1)
 def stage_3(c):
-    # raise RuntimeError
+    # raise BaseException
     return c * 3
 
 

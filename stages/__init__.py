@@ -1,8 +1,9 @@
+import logging
 from dags.stage import BaseStage
 from .hdfs import HDFSCSVReadStage, HDFSORCReadStage
 from .label_encoder import CastStage
 from .filter import FilterStage
-from .join import *
+from .join import MultiJoin
 
 __all__ = [
     "BaseStage",
@@ -10,6 +11,9 @@ __all__ = [
     "HDFSORCReadStage",
     "CastStage",
     "FilterStage",
-    "join",
-    "multi_join",
+    "MultiJoin",
 ]
+
+logging.basicConfig(
+    format="[STAGES]: %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)

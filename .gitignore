@@ -2,3 +2,6 @@ __pycache__
 *.db
 cache/
 visualizations/
+*.pkl
+*.bin
+test.py

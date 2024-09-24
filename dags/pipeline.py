@@ -69,7 +69,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.job_id = self.generate_job_id()
         self.stage_counter = 0
         self.stages_to_add = list()
-        self.completed_stages = set()
+        self.completed_stages = list()
 
     def generate_job_id(self):
         self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -145,7 +145,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         参数:
             stage_name <str>: pipeline中阶段的名称。
         """
-        # logging.INFO(f"[Running stage] {stage_name}")
+        logging.info(f"[Running stage] {stage_name}")
         self.pipeline.nodes[stage_name]["stage_wrapper"].run()
 
     def _compute_pipeline_hash(self):
@@ -163,7 +163,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         checkpoint_data = json.dumps(
             {
-                "completed_stages": list(self.completed_stages),
+                "completed_stages": self.completed_stages,
                 "pipeline_hash": self._compute_pipeline_hash(),
             }
         )
@@ -176,7 +176,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         checkpoint = self.read("pipeline_checkpoint")
         if checkpoint:
             data = json.loads(checkpoint)
-            self.completed_stages = set(data["completed_stages"])
+            self.completed_stages = data["completed_stages"]
             return data
         return None
 
@@ -203,6 +203,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             force_rerun [<bool>]: 是否强制重跑所有阶段。
         """
 
+        # TODO pipeline好像会跳过失败的stage
+
         if visualize:
             self.visualize(save_path=save_path)
 
@@ -211,7 +213,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
         if force_rerun:
             logging.info("强制重跑所有阶段")
-            self.completed_stages = set()
+            self.completed_stages = list()
             self._delete_checkpoint()
         else:
             checkpoint_data = self._load_checkpoint()
@@ -229,15 +231,16 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                 and previous_pipeline_hash != current_pipeline_hash
             ):
                 logging.info("Pipeline 发生改动，重头运行")
-                self.completed_stages = set()
+                self.completed_stages = list()
 
         sorted_grouped_stages = self.topological_sort_grouped()
         for group in sorted_grouped_stages:
-            logging.info("处理组: %s", group)
 
             stages_to_run = [
                 stage for stage in group if stage not in self.completed_stages
             ]
+
+            logging.info("处理组: %s", stages_to_run)
 
             if num_cores:
                 pool = ThreadPool(num_cores)
@@ -247,10 +250,13 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                 for stage in stages_to_run:
                     with StageExecutor(self.db_path, [stage]) as stage_executor:
                         stage_executor.execute(self.run_stage, stage)
-                    self.completed_stages.add(stage)
+                    self.completed_stages.append(stage)
                     self._save_checkpoint()  # 在每个阶段运行完后保存检查点
 
         self._delete_checkpoint()
+
+    def get_graph_last_output(self):
+        return SQLiteCache.read(self.completed_stages[-1])
 
     def visualize(self, save_path=None):
         """

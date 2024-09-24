@@ -1,9 +1,12 @@
 import os
 import pandas as pd
+import polars as pl
 import hashlib
 import logging
+import pyarrow.orc as orc
+import pyarrow.dataset as ds
 from utils.hdfs_v3 import download
-from dags.stage import CustomStage
+from dags.stage import CustomStage, stage
 from tqdm import tqdm
 
 
@@ -27,14 +30,14 @@ def hdfs_download(path: str, overwrite: bool):
     if os.path.exists(local_path):
         if overwrite:
             download(
-                path, local_path, "obs://lts-bigdata-hive-obs-prod/", 2, True, "hadoop"
+                path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
             )
             logging.info("下载完成")
         else:
             logging.warn(f"{local_path}已仍存在，不再下载")
     else:
         download(
-            path, local_path, "obs://lts-bigdata-hive-obs-prod/", 2, True, "hadoop"
+            path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
         )
         logging.info("下载完成")
     return local_path
@@ -52,13 +55,13 @@ class HDFSCSVReadStage(CustomStage):
 
     @property
     def reader(self):
-        return pd.read_csv
+        return pl.scan_csv
 
     @property
     def file_type(self):
         return ".csv"
 
-    def forward(self, *args, **kwargs) -> pd.DataFrame:
+    def forward(self, *args, **kwargs) -> pl.LazyFrame:
 
         local_path = hdfs_download(self.path, self.overwrite)
 
@@ -73,7 +76,7 @@ class HDFSCSVReadStage(CustomStage):
                         try:
                             df = self.reader(file_path)
                             if self.select_cols:
-                                df = df[self.select_cols]
+                                df = df.select(self.select_cols)
                             df_list.append(df)
                         except pd.errors.ParserError as e:
                             logging.error(
@@ -84,7 +87,8 @@ class HDFSCSVReadStage(CustomStage):
                             pbar.update(1)
 
         if df_list:
-            df = pd.concat(df_list, ignore_index=True)
+            logging.info("Starting concat lazy dataframe")
+            df = pl.concat(df_list, how="vertical_relaxed")
         else:
             raise RuntimeError(f"Can not find any {self.file_type} files")
 
@@ -94,34 +98,70 @@ class HDFSCSVReadStage(CustomStage):
 class HDFSORCReadStage(HDFSCSVReadStage):
 
     @property
-    def reader(self):
-        return pd.read_orc
-
-    @property
     def file_type(self):
         return ".orc"
+    
+    def forward(self, *args, **kwargs) -> pl.LazyFrame:
+        
+        local_path = hdfs_download(self.path, self.overwrite)
+
+        df_list = []
+
+        # 获取所有 ORC 文件的路径
+        orc_files = []
+        for root, dirs, files in os.walk(local_path):
+            for file in files:
+                if file.endswith(self.file_type):
+                    orc_files.append(os.path.join(root, file))
+
+        if not orc_files:
+            raise RuntimeError(f"Can not find any {self.file_type} files")
+
+        # 使用 tqdm 显示进度条
+        for file_path in tqdm(orc_files, desc="Reading ORC files"):
+            try:
+                # 使用 pyarrow 读取 ORC 文件
+                orc_file = orc.ORCFile(file_path)
+            except BaseException as e:
+                logging.error(f"Reading file {file_path} error: {e}")
+                raise e
+            # 获取 ORC 文件的 schema
+            schema = orc_file.schema
+            # 初始化一个空的 polars DataFrame
+            df = pl.DataFrame(schema.empty_table().to_pandas())
+            
+            # 分块读取 ORC 文件
+            for i in range(0, orc_file.nstripes):
+                batch = orc_file.read_stripe(i, columns=self.select_cols)
+                # 将 pyarrow Table 转换为 polars DataFrame 并追加到 df
+                df_list.append(pl.from_arrow(batch).lazy())
+
+        logging.info("Starting concat lazy dataframe")
+        df = pl.concat(df_list, how="vertical_relaxed")
+
+        return df
 
 
-# @stage
-# def hdfs_csv_reader(path: str, *args) -> pd.DataFrame:
+@stage(n_outputs=1)
+def hdfs_csv_reader(path: str, *args) -> pd.DataFrame:
 
-#     local_path = hdfs_download(path)
+    local_path = hdfs_download(path)
 
-#     # 遍历目录，全部读取csv文件并concat
-#     df_list = []
-#     for root, dirs, files in os.walk(local_path):
-#         for file in files:
-#             if file.endswith('.csv'):
-#                 file_path = os.path.join(root, file)
-#                 df = pd.read_csv(file_path)
-#                 df_list.append(df)
+    # 遍历目录，全部读取csv文件并concat
+    df_list = []
+    for root, dirs, files in os.walk(local_path):
+        for file in files:
+            if file.endswith('.csv'):
+                file_path = os.path.join(root, file)
+                df = pd.read_csv(file_path)
+                df_list.append(df)
 
-#     if df_list:
-#         df = pd.concat(df_list, ignore_index=True)
-#     else:
-#         df = pd.DataFrame()  # 如果没有找到CSV文件，返回空的DataFrame
+    if df_list:
+        df = pd.concat(df_list, ignore_index=True)
+    else:
+        df = pd.DataFrame()  # 如果没有找到CSV文件，返回空的DataFrame
 
-#     return df
+    return df
 
 
 # @stage
