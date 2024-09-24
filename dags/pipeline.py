@@ -14,6 +14,7 @@ pipeline中可以并行运行的一组阶段称为"Group"。在串行模式下,G
 """
 
 import os
+import pickle
 import typing
 import logging
 import datetime
@@ -60,7 +61,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     pipeline = nx.DiGraph()
 
-    def __init__(self):
+    def __init__(self, num_cores: int = None, visualize: bool = False, save_dags: bool = True, force_rerun: bool = False):
         """
         我们使用SQLite数据库作为Pipeline的底层缓存。
         """
@@ -70,6 +71,11 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.stage_counter = 0
         self.stages_to_add = list()
         self.completed_stages = list()
+
+        self.num_cores = num_cores
+        self.visualize = visualize
+        self.save_dags = save_dags
+        self.force_rerun = force_rerun
 
     def generate_job_id(self):
         self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -82,6 +88,11 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         # 在退出上下文时可以添加一些清理操作
         for stage in self.stages_to_add:
             self.add_stage(stage=stage)
+        
+        self.start(num_cores=self.num_cores,
+                   visualize=self.visualize,
+                   save_dags=self.save_dags,
+                   force_rerun=self.force_rerun)
 
     def topological_sort_grouped(self) -> typing.Generator:
         """
@@ -190,7 +201,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self,
         num_cores: int = None,
         visualize: bool = False,
-        save_path: bool = True,
+        save_dags: bool = True,
         force_rerun: bool = False,
     ) -> None:
         """
@@ -206,7 +217,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         # TODO pipeline好像会跳过失败的stage
 
         if visualize:
-            self.visualize(save_path=save_path)
+            self._visualize(save_dags)
 
         logging.info("序列化pipeline并写入SQLite")
         self.write("pipeline", self.serialize(self.pipeline))
@@ -256,9 +267,18 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self._delete_checkpoint()
 
     def get_graph_last_output(self):
-        return SQLiteCache.read(self.completed_stages[-1])
+        return self.read(self.completed_stages[-1])
+    
+    def get_output(self, k):
+        file_path = self.read(k)
+        if file_path and os.path.exists(file_path):
+            with open(file_path, "rb") as f:
+                return pickle.load(f)
+        else:
+            logging.warning(f"数据文件不存在: {file_path}")
+            return None
 
-    def visualize(self, save_path=None):
+    def _visualize(self, save_dags: bool = False):
         """
         通过渲染matplotlib图形来可视化pipeline/DAG的方法，并可选择保存到本地。
 
@@ -282,7 +302,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         plt.axis("off")  # 关闭坐标轴
 
         # 保存图像到本地
-        if save_path:
+        if save_dags:
             # 使用 job_id 创建默认的保存路径
             save_path = os.path.join("./visualizations", f"pipeline_{self.job_id}.png")
 

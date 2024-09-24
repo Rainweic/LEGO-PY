@@ -33,7 +33,7 @@ def stage_6(f, g, h, i):
     print(f / g * h + i)
 
 
-with Pipeline() as p:
+with Pipeline(visualize=True, save_dags=True) as p:
 
     stage1 = stage_1().set_pipeline(p)
 
@@ -62,4 +62,3 @@ with Pipeline() as p:
         )
     )
 
-p.start(visualize=True, save_path=True)

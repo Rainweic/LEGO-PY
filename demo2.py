@@ -98,4 +98,3 @@ with Pipeline() as p:
         .set_inputs(data_preprocessor.output_data_names)
     )
 
-p.start()

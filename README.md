@@ -2,6 +2,22 @@
 ## Pipeline的搭建和运行
 
 
+### 现有功能
+
+- DataFrame依赖Polars Lazy API，延迟计算，支持小内存大数据
+- 支持中断续跑
+- 组件输出临时存储
+- 流程图输出
+- 自定义各类功能组件
+- 支持组件：
+    - hdfs数据下载
+    - join
+    - label_enconder
+    - pearson 
+    - spearman
+    - where
+
+
 ### Pipeline搭建
 
 
@@ -14,18 +30,17 @@
 
 2. 自定义`build_pipeline()`函数用来构建pipeline：
 
-    - 创建各个Stage的实例。【参考demo1.py demo2.py】
+    - 使用`Pipeline`创建计算图，【参考demo1.py demo2.py】
     - 使用`.set_pipeline()`方法设置指定Pipeline
     - 使用`.after()`方法设置Stage之间的依赖关系。
     - 使用`.set_input()`/`.set_inputs()`设置输入。
+    - 使用`Pipeline.get_output`获取指定stage的输出。
     - 每个Stage都需要设置输出数量。设置方法参考demo
-    - 创建`Pipeline`实例并运行。
 
 
-### 现有功能
 
-- DataFrame依赖Polars Lazy API，延迟计算
-- 支持中断续跑
-- 组件输出临时存储
-- 流程图输出
-- 自定义各类功能组件
+### 未实现
+
+- 前端拖拉拽UI，生成配置文件
+- 读取配置文件自动生成计算图
+
