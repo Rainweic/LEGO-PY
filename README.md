@@ -15,22 +15,17 @@
 2. 自定义`build_pipeline()`函数用来构建pipeline：
 
     - 创建各个Stage的实例。【参考demo1.py demo2.py】
+    - 使用`.set_pipeline()`方法设置指定Pipeline
     - 使用`.after()`方法设置Stage之间的依赖关系。
     - 使用`.set_input()`/`.set_inputs()`设置输入。
     - 每个Stage都需要设置输出数量。设置方法参考demo
-    - 创建`Pipeline`实例并添加所有Stage。
+    - 创建`Pipeline`实例并运行。
 
 
-### Pipeline运行
+### 现有功能
 
-1. 构建pipeline：
-   ```python
-   pipeline = build_pipeline()
-   ```
-
-2. 启动pipeline：
-   ```python
-   pipeline.start()
-   ```
-
-可以在`start()`方法中添加参数，如`visualize=True`来可视化pipeline结构。
+- DataFrame依赖Polars Lazy API，延迟计算
+- 支持中断续跑
+- 组件输出临时存储
+- 流程图输出
+- 自定义各类功能组件
