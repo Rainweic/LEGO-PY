@@ -62,3 +62,5 @@ with Pipeline(visualize=True, save_dags=True) as p:
         )
     )
 
+# 随机挑一个组件查看输出
+print(p.get_output(stage6.output_data_names[0]))

@@ -31,9 +31,9 @@
 2. 自定义`build_pipeline()`函数用来构建pipeline：
 
     - 使用`Pipeline`创建计算图，【参考demo1.py demo2.py】
-    - 使用`.set_pipeline()`方法设置指定Pipeline
-    - 使用`.after()`方法设置Stage之间的依赖关系。
-    - 使用`.set_input()`/`.set_inputs()`设置输入。
+        - 使用`.set_pipeline()`方法设置指定Pipeline
+        - 使用`.after()`方法设置Stage之间的依赖关系。
+        - 使用`.set_input()`/`.set_inputs()`设置输入。
     - 使用`Pipeline.get_output`获取指定stage的输出。
     - 每个Stage都需要设置输出数量。设置方法参考demo
 
