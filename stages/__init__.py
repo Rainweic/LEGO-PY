@@ -1,17 +1,19 @@
 import logging
-from dags.stage import BaseStage
 from .hdfs import HDFSCSVReadStage, HDFSORCReadStage
 from .label_encoder import CastStage
-from .filter import FilterStage
 from .join import MultiJoin
+from .pearson import Pearson
+from .spearman import Spearman
+from .where import Where
 
 __all__ = [
-    "BaseStage",
     "HDFSCSVReadStage",
     "HDFSORCReadStage",
     "CastStage",
-    "FilterStage",
     "MultiJoin",
+    "Pearson",
+    "Spearman",
+    "Where",
 ]
 
 logging.basicConfig(

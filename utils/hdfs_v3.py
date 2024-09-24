@@ -7,35 +7,40 @@ import multiprocessing
 from datetime import datetime
 import logging
 
-"""
-由于物理机和idata平台需要执行的脚本不同
-环境信息加载请放在前面，否则会报pydoop 或 hdfs 加载异常
-"""
-# 本地shell脚本
-cmd_local_file = "/opt/mrsclient/bigdata_env"
-source_cmd_local = "source " + cmd_local_file + " && env"
-# pyspark on yarn
-source_cmd_yarn = "source /opt/pydoop-install/mrsclient/bigdata_env && env"
-if os.path.isfile(cmd_local_file):
-    print(source_cmd_local)
-    result = subprocess.run(
-        source_cmd_local, shell=True, check=True, stdout=subprocess.PIPE
-    )
-    output = result.stdout.decode("utf-8")
-else:
-    print(source_cmd_yarn)
-    result = subprocess.run(
-        source_cmd_yarn, shell=True, check=True, stdout=subprocess.PIPE
-    )
-    output = result.stdout.decode("utf-8")
+
+def init():
+    """
+    由于物理机和idata平台需要执行的脚本不同
+    环境信息加载请放在前面，否则会报pydoop 或 hdfs 加载异常
+    """
+    # 本地shell脚本
+    cmd_local_file = "/opt/mrsclient/bigdata_env"
+    source_cmd_local = "source " + cmd_local_file + " && env"
+    # pyspark on yarn
+    source_cmd_yarn = "source /opt/pydoop-install/mrsclient/bigdata_env && env"
+    if os.path.isfile(cmd_local_file):
+        print(source_cmd_local)
+        result = subprocess.run(
+            source_cmd_local, shell=True, check=True, stdout=subprocess.PIPE
+        )
+        output = result.stdout.decode("utf-8")
+    else:
+        print(source_cmd_yarn)
+        result = subprocess.run(
+            source_cmd_yarn, shell=True, check=True, stdout=subprocess.PIPE
+        )
+        output = result.stdout.decode("utf-8")
 
 
-for line in output.splitlines():
-    var = line.strip().split("=")
-    if len(var) == 2:
-        os.environ[var[0]] = var[1]
+    for line in output.splitlines():
+        var = line.strip().split("=")
+        if len(var) == 2:
+            os.environ[var[0]] = var[1]
 
-import pydoop.hdfs as hdfs
+try:
+    import pydoop.hdfs as hdfs
+except BaseException as e:
+    pass
 
 
 class InsecureClient:
@@ -48,6 +53,7 @@ class InsecureClient:
         self.bucket_name = _bucket_name
         self.logger = logging.getLogger("demo")
         self.logger.setLevel(logging.INFO)
+        init()
 
     def is_file_local(self, local_path):
         self.logger.info("Determining local %s is a file or path...", local_path)

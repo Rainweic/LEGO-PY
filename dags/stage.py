@@ -11,6 +11,7 @@ The other is by subclassing Stage, SQLiteStage, DiskCacheStage.
 
 from abc import ABC, abstractmethod
 
+import polars as pl
 import logging
 import diskcache
 import os
@@ -71,19 +72,21 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     def __init__(self, n_outputs):
         SQLiteCache.__init__(self, db_path="./pipeline.db")
         Stage.__init__(self)
-        self.job_id = None
-        self.stage_idx = None
+        self._job_id = None
+        self._stage_idx = None
         self._n_outputs = n_outputs
+        self._collect_result = False     # forward函数之后对LazyFrame是否执行collect
+        self._show_collect = False
 
     def set_job_id(self, job_id):
-        self.job_id = job_id
+        self._job_id = job_id
 
     def get_run_folder(self):
-        if self.job_id is None:
+        if self._job_id is None:
             raise ValueError(
                 "job_id has not been set. Please ensure set_job_id is called before running the stage."
             )
-        return os.path.join(LARGE_DATA_PATH, self.job_id)
+        return os.path.join(LARGE_DATA_PATH, self._job_id)
 
     def _get_data_path(self, name):
         """生成用于存储数据的文件路径"""
@@ -112,7 +115,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         返回一个唯一的名称，由类名和实例的UUID组成。
         """
-        return f"{self.stage_idx}_{self.__class__.__name__}"
+        return f"{self._stage_idx}_{self.__class__.__name__}"
 
     def set_input(self, input_data_name: str):
         """
@@ -189,10 +192,15 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
     def set_pipeline(self, pipeline):
         self.pipeline = pipeline
-        self.job_id = pipeline.job_id
-        self.stage_idx = pipeline.get_cur_stage_idx()
+        self._job_id = pipeline.job_id
+        self._stage_idx = pipeline.get_cur_stage_idx()
         self.set_n_outputs()
         pipeline.stages_to_add.append(self)
+        return self
+    
+    def collect_result(self, show: bool = False):
+        self._collect_result = True
+        self._show_collect = show
         return self
 
     def forward(self, *args, **kwargs):
@@ -231,10 +239,20 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             outs = self.forward(*args, **kwargs)
 
         if self.output_data_names:
+
             if len(self.output_data_names) == 1:
-                self.write(self.output_data_names[0], outs)
+                o_n = self.output_data_names[0]
+                if self._collect_result and isinstance(outs, pl.LazyFrame):
+                    outs = outs.collect()
+                    if self._show_collect:
+                        logging.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
+                self.write(o_n, outs)
             else:
                 for o_n, o in zip(self.output_data_names, outs):
+                    if self._collect_result and isinstance(o, pl.LazyFrame):
+                        o = o.collect()
+                        if self._show_collect:
+                            logging.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
                     self.write(o_n, o)
         else:
             logging.warning(f"stage: {self.name} 无任何输出")
@@ -270,13 +288,17 @@ class DecoratorStage(BaseStage):
     @property
     def name(self) -> str:
         """Name is given by the name of the user-defined decorated function."""
-        return f"{self.stage_idx}_{self.stage_function.__name__}"
+        return f"{self._stage_idx}_{self.stage_function.__name__}"
 
     def forward(self, *args, **kwargs) -> None:
         """
         Stage is run by calling the wrapped user function with its arguments.
         """
-        return self.stage_function(*(args + self.args), **kwargs.update(self.kwargs))
+        if self.args:
+            args = args + self.args
+        if self.kwargs:
+            kwargs.update(self.kwargs)
+        return self.stage_function(*args, **kwargs)
 
 
 class DiskCacheStage(Stage, PickleSerializer, DiskCache):
