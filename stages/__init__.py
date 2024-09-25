@@ -5,6 +5,7 @@ from .join import MultiJoin
 from .pearson import Pearson
 from .spearman import Spearman
 from .where import Where
+from features.importance import XGBImportance
 
 __all__ = [
     "HDFSCSVReadStage",
@@ -14,6 +15,7 @@ __all__ = [
     "Pearson",
     "Spearman",
     "Where",
+    "XGBImportance"
 ]
 
 logging.basicConfig(
