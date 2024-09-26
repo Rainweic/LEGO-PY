@@ -122,6 +122,10 @@ def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
                     stage_instance.after(before_stages)
 
+                if stage_info.get("collect_result", False):
+                    show = stage_info.get("show_collect_result", False)
+                    stage_instance.collect_result(show=show)
+
                 instance[stage_info['name']] = stage_instance
 
             out_p.append(p)

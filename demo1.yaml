@@ -12,11 +12,14 @@ pipeline:
           path: .
           module_name: stage_1
           name: stage1
+          collect_result: False
+          show_collect_result: True
 
       - CustomFunc:
           path: .
           module_name: stage_2
           name: stage2
+          collect_result: False
 
       - CustomFunc:
           path: .
@@ -25,6 +28,7 @@ pipeline:
           after: stage2
           inputs:
             - stage2.0
+          collect_result: False
 
       - CustomFunc:
           path: .
@@ -33,6 +37,7 @@ pipeline:
           after: stage2
           inputs:
             - stage2.0
+          collect_result: False
 
       - CustomFunc:
           path: .
@@ -41,6 +46,7 @@ pipeline:
           after: stage1
           inputs:
             - stage1.0
+          collect_result: False
 
       - CustomFunc:
           path: .
@@ -54,3 +60,4 @@ pipeline:
             - stage3.0
             - stage4
             - stage5.0
+          collect_result: False
