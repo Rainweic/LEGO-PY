@@ -1,0 +1,34 @@
+pipeline:
+  - name: data_pipeline
+
+    args:
+      visualize: True
+      save_dags: True
+      force_rerun: False
+
+    stages:
+    
+      - CustomStage:
+          path: .
+          module_name: DataIngestor
+          name: data_ingestor
+          args: {}
+
+      - CustomStage:
+          path: .
+          module_name: DataPreprocessor
+          name: data_preprocessor
+          after: data_ingestor
+          inputs: 
+            - data_ingestor.0
+            - data_ingestor.1
+          args: {}
+
+      - CustomStage:
+          path: .
+          module_name: ModelTrainer
+          name: model_trainer
+          after: data_preprocessor
+          inputs: 
+            - data_preprocessor.0
+          args: {}

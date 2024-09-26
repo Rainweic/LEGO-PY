@@ -86,6 +86,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # 在退出上下文时可以添加一些清理操作
+        
         for stage in self.stages_to_add:
             self.add_stage(stage=stage)
         
@@ -269,8 +270,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
     def get_graph_last_output(self):
         return self.read(self.completed_stages[-1])
     
-    def get_output(self, k):
-        file_path = self.read(k)
+    def get_output(self, output_name):
+        file_path = self.read(output_name)
         if file_path and os.path.exists(file_path):
             with open(file_path, "rb") as f:
                 return pickle.load(f)

@@ -9,6 +9,7 @@
 - 组件输出临时存储
 - 流程图输出
 - 自定义各类功能组件
+- 读取yaml配置文件自动生成计算图 [参考demo1.yaml、demo2.yaml]
 - 支持组件：
     - hdfs数据下载
     - join
@@ -31,9 +32,9 @@
 2. 自定义`build_pipeline()`函数用来构建pipeline：
 
     - 使用`Pipeline`创建计算图，【参考demo1.py demo2.py】
-    - 使用`.set_pipeline()`方法设置指定Pipeline
-    - 使用`.after()`方法设置Stage之间的依赖关系。
-    - 使用`.set_input()`/`.set_inputs()`设置输入。
+        - 使用`.set_pipeline()`方法设置指定Pipeline
+        - 使用`.after()`方法设置Stage之间的依赖关系。
+        - 使用`.set_input()`/`.set_inputs()`设置输入。
     - 使用`Pipeline.get_output`获取指定stage的输出。
     - 每个Stage都需要设置输出数量。设置方法参考demo
 
@@ -42,5 +43,5 @@
 ### 未实现
 
 - 前端拖拉拽UI，生成配置文件
-- 读取配置文件自动生成计算图
 - 异步读写输入输出
+- 上下两个组件的输入输出性能优化

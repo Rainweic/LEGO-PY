@@ -1,0 +1,63 @@
+pipeline:
+  - name: data_pipeline
+
+    args:
+      visualize: True
+      save_dags: True
+      force_rerun: False
+
+    stages:
+    
+      - CustomFunc:
+          path: .
+          module_name: stage_1
+          name: stage1
+          collect_result: False
+          show_collect_result: True
+
+      - CustomFunc:
+          path: .
+          module_name: stage_2
+          name: stage2
+          collect_result: False
+
+      - CustomFunc:
+          path: .
+          module_name: stage_3
+          name: stage3
+          after: stage2
+          inputs:
+            - stage2.0
+          collect_result: False
+
+      - CustomFunc:
+          path: .
+          module_name: stage_4
+          name: stage4
+          after: stage2
+          inputs:
+            - stage2.0
+          collect_result: False
+
+      - CustomFunc:
+          path: .
+          module_name: stage_5
+          name: stage5
+          after: stage1
+          inputs:
+            - stage1.0
+          collect_result: False
+
+      - CustomFunc:
+          path: .
+          module_name: stage_6
+          name: stage6
+          after: 
+            - stage3
+            - stage4
+            - stage5
+          inputs:
+            - stage3.0
+            - stage4
+            - stage5.0
+          collect_result: False

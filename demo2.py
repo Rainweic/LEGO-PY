@@ -80,21 +80,22 @@ class ModelTrainer(CustomStage):
         print("Accuracy:", acc)
 
 
-with Pipeline() as p:
+if __name__ == "__main__":
+    with Pipeline() as p:
 
-    data_ingestor = DataIngestor().set_pipeline(p)
+        data_ingestor = DataIngestor().set_pipeline(p)
 
-    data_preprocessor = (
-        DataPreprocessor()
-        .set_pipeline(p)
-        .after(data_ingestor)
-        .set_inputs(data_ingestor.output_data_names)
-    )
+        data_preprocessor = (
+            DataPreprocessor()
+            .set_pipeline(p)
+            .after(data_ingestor)
+            .set_inputs(data_ingestor.output_data_names)
+        )
 
-    model_trainer = (
-        ModelTrainer()
-        .set_pipeline(p)
-        .after(data_preprocessor)
-        .set_inputs(data_preprocessor.output_data_names)
-    )
+        model_trainer = (
+            ModelTrainer()
+            .set_pipeline(p)
+            .after(data_preprocessor)
+            .set_inputs(data_preprocessor.output_data_names)
+        )
 
