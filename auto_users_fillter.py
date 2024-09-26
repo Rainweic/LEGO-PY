@@ -1,23 +1,69 @@
-import logging
 import polars as pl
+import xgboost as xgb
 from dags.stage import stage
 from dags.pipeline import Pipeline
 from stages import *
 
 
-if __name__ == "__main__":
-    n_all_samples = 200_000
-    sample_date = "2024-09-05"
-    pearson_abs_threshold = 0.15
-    spearman_abs_threshold = 0.15
+@stage(n_outputs=1)
+def filter_and_sample_label(df: pl.LazyFrame) -> pl.LazyFrame:
+    """
+    过滤和采样标签数据。
+
+    参数:
+        df (pl.LazyFrame): 输入的数据框。
+
+    返回:
+        pl.LazyFrame: 处理后的数据框。
+    """
+
+    # 将 DataFrame 转换为 LazyFrame
+    df = df.lazy()
+
+    # 过滤掉 label_value == -1 && 只选取 position_id == "W101"
+    df = df.filter((pl.col("label_value") != -1) & (pl.col("position_id") == "W101"))
+
+    # 选取所需列
+    df = df.select(["member_id", "label_value", "dt"])
+
+    # 正负样本采样1:1
+    df_label_1 = df.filter(pl.col("label_value") == 1)
+    df_label_0 = df.filter(pl.col("label_value") == 0)
+
+    # 正负样本1:1
+    n_samples = min(
+        df_label_0.select(pl.len()).collect().item(),
+        df_label_1.select(pl.len()).collect().item(),
+        n_all_samples // 2
+    )
+
+    # 使用 SQL 进行采样(暂时没有随机)
+    df_label_0_sampled = df_label_0.sql(f"SELECT * FROM self LIMIT {n_samples}")
+    df_label_1_sampled = df_label_1.sql(f"SELECT * FROM self LIMIT {n_samples}")
+
+    # 合并正负样本
+    df = pl.concat([df_label_0_sampled, df_label_1_sampled])
+
+    return df.lazy()
+
+
+@stage(n_outputs=1)
+def filter_columns_by_threshold(lf: pl.LazyFrame, threshold: float) -> list[str]:
+    if isinstance(lf, pl.LazyFrame):
+        # 将 LazyFrame 收集为 DataFrame 以便进行操作
+        df = lf.collect()
+    else:
+        df = lf
+    # 获取列名列表
+    columns = df.columns
+    # 过滤出绝对值大于阈值的列名
+    filtered_columns = [col for col in columns if abs(df[col][0]) > threshold]
+    return filtered_columns
+
+
+def get_train_data() -> pl.DataFrame:
 
     with Pipeline() as p:
-        """
-        构建处理流水线。
-
-        返回:
-            Pipeline: 构建好的流水线对象。
-        """
 
         """--------------label生成-------------"""
         # 读取标签数据
@@ -39,50 +85,9 @@ if __name__ == "__main__":
             .set_input(label_data_read_stage.output_data_names[0])
             .set_pipeline(p)
         )
-
-        @stage(n_outputs=1)
-        def filter_sample_label(df: pl.LazyFrame) -> pl.LazyFrame:
-            """
-            过滤和采样标签数据。
-
-            参数:
-                df (pl.LazyFrame): 输入的数据框。
-
-            返回:
-                pl.LazyFrame: 处理后的数据框。
-            """
-
-            # 将 DataFrame 转换为 LazyFrame
-            df = df.lazy()
-
-            # 过滤掉 label_value == -1 && 只选取 position_id == "W101"
-            df = df.filter((pl.col("label_value") != -1) & (pl.col("position_id") == "W101"))
-
-            # 选取所需列
-            df = df.select(["member_id", "label_value", "dt"])
-
-            # 正负样本采样1:1
-            df_label_1 = df.filter(pl.col("label_value") == 1)
-            df_label_0 = df.filter(pl.col("label_value") == 0)
-
-            # 正负样本1:1
-            n_samples = min(
-                df_label_0.select(pl.len()).collect().item(),
-                df_label_1.select(pl.len()).collect().item(),
-                n_all_samples // 2
-            )
-
-            # 使用 SQL 进行采样(暂时没有随机)
-            df_label_0_sampled = df_label_0.sql(f"SELECT * FROM self LIMIT {n_samples}")
-            df_label_1_sampled = df_label_1.sql(f"SELECT * FROM self LIMIT {n_samples}")
-
-            # 合并正负样本
-            df = pl.concat([df_label_0_sampled, df_label_1_sampled])
-
-            return df.lazy()
         
         final_label_stage = (
-            filter_sample_label()
+            filter_and_sample_label()
             .after(label_cast_stage)
             .set_input(label_cast_stage.output_data_names[0])
             .set_pipeline(p)
@@ -226,50 +231,74 @@ if __name__ == "__main__":
             .collect_result(show=True)
         )
 
-        # 计算pearson相关系数
-        pearson_stage = (
-            Pearson(label_col="label_value", exclude_cols=["member_id", "dt"])
-            .set_pipeline(p).set_inputs([join_stage_8.output_data_names[0]])
-            .after(join_stage_8)
-            .collect_result(show=True)
+        """-------------过滤有益标签-------------"""
+
+        # xgb特征重要性来筛选数据
+        xgb_feature_importance_stage = (
+            XGBImportance(label_col="label_value", importance_type="gain")
+                .set_pipeline(p)
+                .set_inputs(join_stage_8.output_data_names[0] * 2)
+                .after(join_stage_8)
+                .collect_result(show=True)
         )
 
-        # 计算spearman相关系数
-        spearman_stage = (Spearman(label_col="label_value", exclude_cols=["member_id", "dt"])
-                          .set_pipeline(p)
-                          .set_inputs([join_stage_8.output_data_names[0]])
-                          .after(join_stage_8)
-                          .collect_result(show=True)
-        )
+    out_df = p.get_output(xgb_feature_importance_stage.output_data_names[0])
 
-        # 输入的lf只有一行，过滤出这一行绝对值大于阈值的列名字
-        @stage(n_outputs=1)
-        def filter(lf: pl.LazyFrame, threshold: float) -> list[str]:
-            if isinstance(lf, pl.LazyFrame):
-                # 将 LazyFrame 收集为 DataFrame 以便进行操作
-                df = lf.collect()
-            else:
-                df = lf
-            # 获取列名列表
-            columns = df.columns
-            # 过滤出绝对值大于阈值的列名
-            filtered_columns = [col for col in columns if abs(df[col][0]) > threshold]
-            return filtered_columns
-        
-        pearson_cols_stage = (filter(threshold=pearson_abs_threshold)
-            .set_pipeline(p)
-            .set_inputs(pearson_stage)
-            .after(pearson_stage)
-        )
+    return out_df
 
-        spearman_cols_stage = (filter(threshold=pearson_abs_threshold)
-            .set_pipeline(p)
-            .set_inputs(pearson_stage)
-            .after(pearson_stage)
-        )
 
-    p.start(visualize=True, save_dags=True, force_rerun=False)
-    filter_cols = list(set(p.get_output(pearson_cols_stage.output_data_names[0])).union(set(p.get_output(spearman_cols_stage.output_data_names[0]))))
-    # 过滤出来的完整数据
-    lf_of_join_stage_8 = p.get_output(join_stage_8.output_data_names[0]).select(filter_cols + ["member_id", "dt", "label_value"])
-    print(lf_of_join_stage_8.collect())
+def train_model():
+
+    train_data = get_train_data()
+    # 准备训练数据
+    X = train_data.drop(["member_id", "dt", "label_value"])
+    y = train_data["label_value"]
+
+    # 将数据转换为XGBoost可用的DMatrix格式
+    dtrain = xgb.DMatrix(X, label=y)
+
+    # 设置XGBoost参数
+    params = {
+        'max_depth': 6,
+        'eta': 0.3,
+        'objective': 'binary:logistic',
+        'eval_metric': 'auc',
+        'subsample': 0.8,  # 随机采样比例
+        'colsample_bytree': 0.8,  # 每棵树的列采样比例
+        'gamma': 0.1,  # 最小损失减少
+        'lambda': 1,  # L2正则化项
+        'alpha': 0,  # L1正则化项
+        'scale_pos_weight': 1  # 正负样本权重
+    }
+
+    # 训练模型
+    num_round = 100
+    model = xgb.train(params, dtrain, num_round)
+
+    # 保存模型
+    model.save_model('xgboost_model.json')
+
+    print("模型训练完成并已保存。")
+
+    # 特征重要性
+    importance = model.get_score(importance_type='weight')
+    importance = sorted(importance.items(), key=lambda x: x[1], reverse=True)
+
+    print("特征重要性排名前10：")
+    for feature, score in importance[:10]:
+        print(f"{feature}: {score}")
+
+    # 评估模型效果
+    preds = model.predict(dtrain)
+    model.eval(dtrain)
+    auc_score = xgb.metrics.auc(y, preds)  # 计算AUC评分
+    print(f"模型AUC评分: {auc_score}")
+
+
+if __name__ == "__main__":
+    n_all_samples = 200_000
+    sample_date = "2024-09-05"
+    pearson_abs_threshold = 0.15
+    spearman_abs_threshold = 0.15
+
+

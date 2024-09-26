@@ -33,34 +33,35 @@ def stage_6(f, g, h, i):
     print(f / g * h + i)
 
 
-with Pipeline(visualize=True, save_dags=True) as p:
+if __name__ == "__main__":
+    with Pipeline(visualize=True, save_dags=True) as p:
 
-    stage1 = stage_1().set_pipeline(p)
+        stage1 = stage_1().set_pipeline(p)
 
-    stage2 = stage_2().set_pipeline(p)
+        stage2 = stage_2().set_pipeline(p)
 
-    stage3 = (
-        stage_3().set_pipeline(p).after(stage2).set_input(stage2.output_data_names[0])
-    )
-
-    stage4 = (
-        stage_4().set_pipeline(p).after(stage2).set_input(stage2.output_data_names[0])
-    )
-
-    stage5 = (
-        stage_5().set_pipeline(p).after(stage1).set_inputs(stage1.output_data_names)
-    )
-
-    stage6 = (
-        stage_6()
-        .set_pipeline(p)
-        .after([stage3, stage4, stage5])
-        .set_inputs(
-            stage3.output_data_names
-            + stage4.output_data_names
-            + stage5.output_data_names
+        stage3 = (
+            stage_3().set_pipeline(p).after(stage2).set_input(stage2.output_data_names[0])
         )
-    )
 
-# 随机挑一个组件查看输出
-print(p.get_output(stage6.output_data_names[0]))
+        stage4 = (
+            stage_4().set_pipeline(p).after(stage2).set_input(stage2.output_data_names[0])
+        )
+
+        stage5 = (
+            stage_5().set_pipeline(p).after(stage1).set_inputs(stage1.output_data_names)
+        )
+
+        stage6 = (
+            stage_6()
+            .set_pipeline(p)
+            .after([stage3, stage4, stage5])
+            .set_inputs(
+                stage3.output_data_names
+                + stage4.output_data_names
+                + stage5.output_data_names
+            )
+        )
+
+    # 随机挑一个组件查看输出
+    print(p.get_output(stage6.output_data_names[0]))

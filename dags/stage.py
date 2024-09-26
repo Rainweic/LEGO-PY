@@ -38,6 +38,7 @@ class Stage(ABC):
 
     def __init__(self):
         self.preceding_stages = list()
+        self._name = None
 
     def after(self, pipeline_stages: list):
         """Method to add stages as dependencies for the current stage."""
@@ -48,7 +49,8 @@ class Stage(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str: ...
+    def name(self) -> str: 
+        return self._name
 
     @abstractmethod
     def run(self, *args, **kwargs): ...
@@ -115,7 +117,13 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         返回一个唯一的名称，由类名和实例的UUID组成。
         """
+        if self._name:
+            return self._name
         return f"{self._stage_idx}_{self.__class__.__name__}"
+    
+    @name.setter
+    def name(self, value: str):
+        self._name = value
 
     def set_input(self, input_data_name: str):
         """
@@ -264,8 +272,7 @@ class CustomStage(BaseStage):
     提供了设置输入输出、运行阶段等基本功能。
     """
 
-    def __init__(self, n_outputs):
-        super().__init__(n_outputs=n_outputs)
+    pass
 
 
 class DecoratorStage(BaseStage):
@@ -288,7 +295,13 @@ class DecoratorStage(BaseStage):
     @property
     def name(self) -> str:
         """Name is given by the name of the user-defined decorated function."""
+        if self._name:
+            return self._name
         return f"{self._stage_idx}_{self.stage_function.__name__}"
+    
+    @name.setter
+    def name(self, value: str):
+        self._name = value
 
     def forward(self, *args, **kwargs) -> None:
         """
