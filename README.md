@@ -1,6 +1,4 @@
 
-## Pipeline的搭建和运行
-
 
 ### 现有功能
 
@@ -17,9 +15,35 @@
     - pearson 
     - spearman
     - where
+    - xgboost特征筛选
 
 
-### Pipeline搭建
+### 运行demo
+
+clone项目
+```bash
+git clone http://git.lkcoffee.com/luqin.li/py-lego.git
+cd py-lego
+```
+安装依赖
+```bash
+pip install -r ./requirements.txt
+```
+
+方式一：通过代码构建的计算图直接运行
+```bash
+python demo1.py
+python demo2.py
+```
+
+方式二：通过写好的yaml文件生成计算图并运行
+```bash
+python parser_yaml.py -p ./demo1.yaml
+python parser_yaml.py -p ./demo2.yaml
+```
+
+
+### 教程相关
 
 
 1. 定义各个处理阶段（Stage）：
@@ -28,6 +52,8 @@
     - demo1.py: 使用`@stage`装饰器来对函数进行包装
     - demo2.py: 继承`CustomStage`来对复杂功能进行包装
     - 两个可以混合使用
+
+    [具体教程](./docs/新增stage.md)
 
 2. 自定义`build_pipeline()`函数用来构建pipeline：
 
@@ -38,9 +64,11 @@
     - 使用`Pipeline.get_output`获取指定stage的输出。
     - 每个Stage都需要设置输出数量。设置方法参考demo
 
+3. [yaml文件说明](./docs/yaml文件说明.md)
 
 
-### 未实现
+
+### 待实现
 
 - 前端拖拉拽UI，生成配置文件
 - 异步读写输入输出
