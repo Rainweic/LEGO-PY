@@ -53,7 +53,7 @@ python parser_yaml.py -p ./demo2.yaml
     - demo2.py: 继承`CustomStage`来对复杂功能进行包装
     - 两个可以混合使用
 
-    [具体教程](./docs/新增stage.md)
+    [具体教程](./docs/Add%20stage.md)
 
 2. 自定义`build_pipeline()`函数用来构建pipeline：
 
@@ -64,7 +64,7 @@ python parser_yaml.py -p ./demo2.yaml
     - 使用`Pipeline.get_output`获取指定stage的输出。
     - 每个Stage都需要设置输出数量。设置方法参考demo
 
-3. [yaml文件说明](./docs/yaml文件说明.md)
+3. [yaml文件说明](./docs/Yaml%20file%20describe.md)
 
 
 
