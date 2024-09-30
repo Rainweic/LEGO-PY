@@ -1,3 +1,4 @@
+import asyncio
 from sklearn.datasets import load_wine
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
@@ -80,9 +81,8 @@ class ModelTrainer(CustomStage):
         print("Accuracy:", acc)
 
 
-if __name__ == "__main__":
-    with Pipeline() as p:
-
+async def main():
+    async with Pipeline() as p:
         data_ingestor = DataIngestor().set_pipeline(p)
 
         data_preprocessor = (
@@ -98,4 +98,8 @@ if __name__ == "__main__":
             .after(data_preprocessor)
             .set_inputs(data_preprocessor.output_data_names)
         )
+
+
+if __name__ == "__main__":
+    asyncio.run(main=main())
 

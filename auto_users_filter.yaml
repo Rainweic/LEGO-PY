@@ -2,6 +2,8 @@ global_args:
 
   n_all_samples: 200_000
   sample_date: "2024-09-05"
+  pearson_abs_threshold: 0.15
+  spearman_abs_threshold: 0.15
 
 pipeline:
 
@@ -34,6 +36,7 @@ pipeline:
               0: 1
               -1: -1
             recover_ori_col: True
+          collect_result: True
 
       - CustomFunc:
           path: .
@@ -43,15 +46,13 @@ pipeline:
             - label_cast_stage
           inputs: 
             - label_cast_stage.0
-          args:
-            threshold: 0.5  # 示例阈值
+          args: {
+            n_all_samples: "${global_args.n_all_samples}"
+          }
+          collect_result: True
 
       - HDFSORCReadStage:
           name: lucky_member_group_type_stage
-          after: 
-            - final_label_stage
-          inputs: 
-            - final_label_stage.0
           args:
             path: "/projects/growth/prod/user-reach-label/data/order/order_message_part2/${global_args.sample_date}"
             select_cols: ["member_id", "lucky_member_group_type"]
@@ -59,20 +60,19 @@ pipeline:
 
       - MultiJoin:
           name: join_stage_1
-          after: lucky_member_group_type_stage
+          after: 
+            - lucky_member_group_type_stage
+            - final_label_stage
           inputs:
             - final_label_stage.0
             - lucky_member_group_type_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSORCReadStage:
           name: is_alt_member_stage
-          after: 
-            - join_stage_1
-          inputs: 
-            - join_stage_1.0
           args:
             path: "/projects/growth/prod/user-reach-label/view/label_view/${global_args.sample_date}"
             select_cols: ["member_id", "is_alt_member"]
@@ -81,20 +81,18 @@ pipeline:
       - MultiJoin:
           name: join_stage_2
           after: 
+            - join_stage_1
             - is_alt_member_stage
           inputs:
             - join_stage_1.0
             - is_alt_member_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSORCReadStage:
           name: start_days_30d_stage
-          after: 
-            - join_stage_2
-          inputs: 
-            - join_stage_2.0
           args:
             path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/login_order_labels/${global_args.sample_date}"
             select_cols: ["member_id", "start_days_30d"]
@@ -103,20 +101,18 @@ pipeline:
       - MultiJoin:
           name: join_stage_3
           after: 
+            - join_stage_2
             - start_days_30d_stage
           inputs:
             - join_stage_2.0
             - start_days_30d_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSORCReadStage:
           name: is_start_no_order_prefer_user_stage
-          after: 
-            - join_stage_3
-          inputs: 
-            - join_stage_3.0
           args:
             path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/login_order_labels/${global_args.sample_date}"
             select_cols: ["member_id", "is_start_no_order_prefer_user"]
@@ -125,42 +121,38 @@ pipeline:
       - MultiJoin:
           name: join_stage_4
           after: 
+            - join_stage_3
             - is_start_no_order_prefer_user_stage
           inputs:
             - join_stage_3.0
             - is_start_no_order_prefer_user_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSORCReadStage:
           name: psm_360d_stage
-          after: 
-            - join_stage_4
-          inputs: 
-            - join_stage_4.0
           args:
-            path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/member_income_psm_360d/${global_args.sample_date.replace('_', '-')}"
+            path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/member_income_psm_360d/${global_args.sample_date}"
             select_cols: ["member_id", "psm_360d"]
             overwrite: False
 
       - MultiJoin:
           name: join_stage_5
           after: 
+            - join_stage_4
             - psm_360d_stage
           inputs:
             - join_stage_4.0
             - psm_360d_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSORCReadStage:
           name: app_coupon_list_bw_days_30d_stage
-          after: 
-            - join_stage_5
-          inputs: 
-            - join_stage_5.0
           args:
             path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/coupon_bw_labels/${global_args.sample_date}"
             select_cols: ["member_id", "app_coupon_list_bw_days_30d"]
@@ -169,20 +161,18 @@ pipeline:
       - MultiJoin:
           name: join_stage_6
           after: 
+            - join_stage_5
             - app_coupon_list_bw_days_30d_stage
           inputs:
             - join_stage_5.0
             - app_coupon_list_bw_days_30d_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSORCReadStage:
           name: coupon_used_99_times_stage
-          after: 
-            - join_stage_6
-          inputs: 
-            - join_stage_6.0
           args:
             path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/member_use_99_coupon_180d/${global_args.sample_date}"
             select_cols: ["member_id", "coupon_used_99_times", "all_coupon_used_times"]
@@ -190,21 +180,19 @@ pipeline:
 
       - MultiJoin:
           name: join_stage_7
-          after: 
+          after:
+            - join_stage_6 
             - coupon_used_99_times_stage
           inputs:
             - join_stage_6.0
             - coupon_used_99_times_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - HDFSCSVReadStage:
           name: active_user_churn_label_stage
-          after: 
-            - join_stage_7
-          inputs: 
-            - join_stage_7.0
           args:
             path: "/projects/growth/prod/wakeup_model/churn_prob/predict_result/${global_args.sample_date}/part-0.csv"
             select_cols: ["member_id", "active_user_churn_label"]
@@ -213,13 +201,15 @@ pipeline:
       - MultiJoin:
           name: join_stage_8
           after: 
+            - join_stage_7
             - active_user_churn_label_stage
           inputs:
             - join_stage_7.0
             - active_user_churn_label_stage.0
           args:
-            on: "member_id"
+            "on": "member_id"
             how: "left"
+          collect_result: True
 
       - XGBImportance:
           name: xgb_feature_importance_stage
@@ -227,7 +217,10 @@ pipeline:
             - join_stage_8
           inputs: 
             - join_stage_8.0
+            - join_stage_8.0
           args:
             label_col: "label_value"
             importance_type: "gain"
+          collect_result: True
+          show_collect_result: True
 

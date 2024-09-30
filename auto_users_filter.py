@@ -6,7 +6,7 @@ from stages import *
 
 
 @stage(n_outputs=1)
-def filter_and_sample_label(df: pl.LazyFrame) -> pl.LazyFrame:
+def filter_and_sample_label(df: pl.LazyFrame, n_all_samples) -> pl.LazyFrame:
     """
     过滤和采样标签数据。
 
@@ -34,7 +34,7 @@ def filter_and_sample_label(df: pl.LazyFrame) -> pl.LazyFrame:
     n_samples = min(
         df_label_0.select(pl.len()).collect().item(),
         df_label_1.select(pl.len()).collect().item(),
-        n_all_samples // 2
+        int(n_all_samples) // 2
     )
 
     # 使用 SQL 进行采样(暂时没有随机)
@@ -87,7 +87,7 @@ def get_train_data() -> pl.DataFrame:
         )
         
         final_label_stage = (
-            filter_and_sample_label()
+            filter_and_sample_label(n_all_samples=n_all_samples)
             .after(label_cast_stage)
             .set_input(label_cast_stage.output_data_names[0])
             .set_pipeline(p)

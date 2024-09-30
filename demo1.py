@@ -33,9 +33,10 @@ def stage_6(f, g, h, i):
     print(f / g * h + i)
 
 
-if __name__ == "__main__":
-    with Pipeline(visualize=True, save_dags=True) as p:
+async def main():
 
+    async with Pipeline(visualize=True, save_dags=True) as p:
+        
         stage1 = stage_1().set_pipeline(p)
 
         stage2 = stage_2().set_pipeline(p)
@@ -64,4 +65,12 @@ if __name__ == "__main__":
         )
 
     # 随机挑一个组件查看输出
-    print(p.get_output(stage6.output_data_names[0]))
+    print(f"Stage 5 output: {await p.get_output(stage5.output_data_names[0])}")
+
+    # 在事件循环内部调用
+    print(f"Remaining tasks at exit: {asyncio.all_tasks()}")
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
