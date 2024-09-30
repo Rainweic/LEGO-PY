@@ -33,12 +33,28 @@ pipeline:
                 inputs:                                         # 指定输入
                     - pre_stage_name.1                          # .n代表某个stage的第n个输出
                 args:                                           # 参数设定
-                    - a: "${args_1}"
-                    - b: "${args_2}"
+                    - a: "${global_args.args_1}"                # 一定要global_args开头
+                    - b: "${global_args.args_2}"
+                    
                 # 若计算数据为polars.LazyFrame, 该参数则代表是否在组件计算完成后是否执行collect()函数
-                # LazyFrame doc: https://docs.pola.rs/user-guide/lazy/using/#using-the-lazy-api-from-a-file
-                # collect() doc: https://docs.pola.rs/user-guide/lazy/execution/#execution-on-larger-than-memory-data
+                # LazyFrame doc: https://docs.pola.rs/user-guide/lazy/using/using-the-lazy-api-from-a-file
+                # collect() doc: https://docs.pola.rs/user-guide/lazy/execution/execution-on-larger-than-memory-data
                 collect_result: False
-    - name: B
-        ...
+                show_collect_result: True                       # 是否显示collect()的结果【输出df】
+
+    - HDFSORCReadStage:
+          name: app_coupon_list_bw_days_30d_stage
+          args:
+            path: "/projects/growth/prod/user-reach-label/data/coupon-control/base/coupon_bw_labels/${global_args.sample_date}"
+            select_cols: ["member_id", "app_coupon_list_bw_days_30d"]
+            overwrite: False
+    
+    - HDFSORCReadStage:
+          name: xxxx
+          args:
+            path: "xxxx"
+            select_cols: ["1", "2"]
+            overwrite: False
+        
+    ...
 ```
