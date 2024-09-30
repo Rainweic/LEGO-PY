@@ -5,11 +5,18 @@ from dags.stage import BaseStage
 
 class MultiJoin(BaseStage):
 
-    def __init__(self, on: str, how: str, col_type: pl.DataType = None):
+    def __init__(self, on: str, how: str, col_type: str = None):
         super().__init__(n_outputs=1)
         self.on = on
         self.how = how
-        self.col_type = col_type
+        if col_type == "int":
+            self.col_type = pl.Int64
+        elif col_type == "float":
+            self.col_type = pl.Float64
+        elif col_type == "string":
+            self.col_type = pl.String
+        else:
+            self.col_type = col_type
 
     def forward(self, *dfs: list[pl.LazyFrame]):
         

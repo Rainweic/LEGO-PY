@@ -70,6 +70,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSORCReadStage:
@@ -90,6 +91,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSORCReadStage:
@@ -110,6 +112,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSORCReadStage:
@@ -130,6 +133,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSORCReadStage:
@@ -150,6 +154,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSORCReadStage:
@@ -170,6 +175,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSORCReadStage:
@@ -190,6 +196,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - HDFSCSVReadStage:
@@ -210,6 +217,7 @@ pipeline:
           args:
             "on": "member_id"
             how: "left"
+            col_type: "string"
           collect_result: True
 
       - XGBImportance:
