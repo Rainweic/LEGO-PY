@@ -264,7 +264,6 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             logging.warning(f"数据文件不存在: {file_path}")
             return None
 
-
     async def _visualize(self, save_dags: bool = False):
         """
         异步地通过渲染matplotlib图形来可视化pipeline/DAG的方法，并可选择保存到本地。

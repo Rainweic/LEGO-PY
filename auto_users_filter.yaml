@@ -13,6 +13,7 @@ pipeline:
       visualize: True
       save_dags: True
       force_rerun: False
+      parallel: False
 
     stages:
     
