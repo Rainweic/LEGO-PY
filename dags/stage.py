@@ -319,7 +319,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                     if self._collect_result and isinstance(o, pl.LazyFrame):
                         o = o.collect()
                         if self._show_collect:
-                            logging.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
+                            logging.info(f"[Show Collect Result of Output {o_n}]\n{o}")
                     await self.write(o_n, o)
         else:
             logging.warning(f"stage: {self.name} 无任何输出")

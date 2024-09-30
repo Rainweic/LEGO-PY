@@ -235,7 +235,9 @@ def get_train_data() -> pl.DataFrame:
 
         # xgb特征重要性来筛选数据
         xgb_feature_importance_stage = (
-            XGBImportance(label_col="label_value", importance_type="gain")
+            XGBImportance(label_col="label_value", train_cols=["lucky_member_group_type", "is_alt_member", 
+                        "start_days_30d", "is_start_no_order_prefer_user", "psm_360d", "app_coupon_list_bw_days_30d",
+                        "coupon_used_99_times", "all_coupon_used_times", "active_user_churn_label"], importance_type="gain")
                 .set_pipeline(p)
                 .set_inputs(join_stage_8.output_data_names[0] * 2)
                 .after(join_stage_8)

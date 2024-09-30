@@ -230,6 +230,9 @@ pipeline:
           args:
             label_col: "label_value"
             importance_type: "gain"
+            train_cols: ["lucky_member_group_type", "is_alt_member", "start_days_30d", "is_start_no_order_prefer_user", 
+                          "psm_360d", "app_coupon_list_bw_days_30d", "coupon_used_99_times", "all_coupon_used_times", 
+                          "active_user_churn_label"]
           collect_result: True
           show_collect_result: True
 
