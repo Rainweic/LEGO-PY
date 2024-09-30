@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import polars as pl
-from stages.importance import XGBImportance
+from stages.xgb import XGBImportance
 
 class TestXGBImportance(unittest.TestCase):
 
