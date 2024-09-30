@@ -71,5 +71,5 @@ python parser_yaml.py -p ./demo2.yaml
 ### 待实现
 
 - 前端拖拉拽UI，生成配置文件
-- 异步读写输入输出
-- 上下两个组件的输入输出性能优化
+- IO加速
+- 直接从hdfs用polars进行读取数据

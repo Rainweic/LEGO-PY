@@ -1,4 +1,5 @@
 import yaml
+import asyncio
 import os
 import importlib.util
 import logging
@@ -34,7 +35,7 @@ def import_module_from_script(script_path: str, module_name: str):
     return module
 
 
-def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
+async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
     with open(yaml_file, 'r', encoding='utf-8') as file:
         config = yaml.safe_load(file)
@@ -48,12 +49,12 @@ def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
     for pipeline_config in pipelines_config:
 
         pipeline_args = pipeline_config.get("args", {})
-        num_cores = pipeline_args.get("num_cores", None)
+        parallel = pipeline_args.get("parallel", None)
         visualize = pipeline_args.get("visualize", False)
         save_dags = pipeline_args.get("save_dags", True)
         force_rerun = pipeline_args.get("force_rerun", False)  
 
-        with Pipeline(num_cores=num_cores, visualize=visualize, save_dags=save_dags, force_rerun=force_rerun) as p:
+        async with Pipeline(parallel=parallel, visualize=visualize, save_dags=save_dags, force_rerun=force_rerun) as p:
 
             instance = {}
 
@@ -67,9 +68,12 @@ def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
                 # 替换全局参数
                 for key, value in stage_info.get('args', {}).items():
-                    if isinstance(value, str) and value.startswith('${global_args.}'):
-                        arg_name = value[len('${global_args.}'): -1]  # 获取参数名
-                        stage_info['args'][key] = global_args.get(arg_name, value)  # 替换为对应的全局参数
+                    if isinstance(value, str) and '${global_args.' in value:
+                        s_begin = value.find('${global_args.')
+                        s_end = value.find('}')
+                        arg_name = value[s_begin + len('${global_args.'): s_end]  # 获取参数名
+                        new_value = value[:s_begin] + f"{global_args.get(arg_name, value)}" + value[s_end+1:]
+                        stage_info['args'][key] = new_value
 
                 # 创建阶段实例
 
@@ -85,6 +89,7 @@ def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     # 从script_path中导入指定函数
                     module = import_module_from_script(script_path=script_path, module_name=module_name)
                     stage_args = stage_info.get("args", {})
+                    logging.info(f"[{stage_type}] {module_name}'s args: {stage_args}")
                     stage_instance = module(**stage_args)
                     # 设置name
                     name = stage_info['name']
@@ -136,4 +141,4 @@ def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 # test
 if __name__ == "__main__":
     yaml_file_path = "./demo1.yaml"  # YAML文件路径
-    p = load_pipelines_from_yaml(yaml_file_path)
+    asyncio.run(load_pipelines_from_yaml(yaml_file_path))

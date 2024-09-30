@@ -15,9 +15,8 @@ SQLite缓存用于管道读/写与管道及其组成阶段执行相关的数据(
 """
 
 from abc import ABC, abstractmethod
-import sqlite3
-import json
-import diskcache
+import aiosqlite
+import asyncio
 
 
 class Cache(ABC):
@@ -26,13 +25,13 @@ class Cache(ABC):
     """
 
     @abstractmethod
-    def read(self, *args, **kwargs): ...
+    async def read(self, *args, **kwargs): ...
 
     @abstractmethod
-    def write(self, *args, **kwargs): ...
+    async def write(self, *args, **kwargs): ...
 
     @abstractmethod
-    def delete(self, *args, **kwargs): ...
+    async def delete(self, *args, **kwargs): ...
 
 
 class InvalidCacheTypeException(Exception):
@@ -57,83 +56,43 @@ class SQLiteCache(Cache):
 
     def __init__(self, db_path: str = "./pipeline.db"):
         self.db_path = db_path
-        self.finish_init = False
+        self.conn = None
 
-    def init(self):
-        if not self.finish_init:
-            self.conn = sqlite3.connect(self.db_path)
-            self.cursor = self.conn.cursor()
-            self.cursor.execute(
-                """CREATE TABLE IF NOT EXISTS cache
-                                (key TEXT PRIMARY KEY, value BLOB)"""
-            )
-            self.conn.commit()
-            self.finish_init = True
+    async def init(self):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value BLOB)""")
+            await db.commit()
 
-    def read(self, k: str) -> bytes:
+    async def read(self, k: str) -> bytes:
         """从SQLite给定关联的字符串键读取值。"""
-        self.init()
+        await self.init()
         if not isinstance(k, str):
             raise InvalidKeyTypeException("请确保键是字符串")
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            result = await db.execute("SELECT value FROM cache WHERE key=?", (k,))
+            result = await result.fetchone()
+            return result[0] if result else None
 
-        self.cursor.execute("SELECT value FROM cache WHERE key=?", (k,))
-        result = self.cursor.fetchone()
-        return result[0] if result else None
-
-    def write(self, k: str, v: bytes) -> None:
-        self.init()
+    async def write(self, k: str, v: bytes) -> None:
         """给定键值对,将值写入SQLite。"""
+        await self.init()
         if not isinstance(k, str):
             raise InvalidKeyTypeException("请确保键是字符串")
 
         if not isinstance(v, (str, bytes)):
             raise InvalidValueTypeException("请确保值是字符串或字节类型")
 
-        self.cursor.execute(
-            "INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", (k, v)
-        )
-        self.conn.commit()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", (k, v))
+            await db.commit()
 
-    def delete(self, k: str) -> None:
+    async def delete(self, k: str) -> None:
         """给定关联的字符串键,从SQLite删除值。"""
+        await self.init()
         if not isinstance(k, str):
             raise InvalidKeyTypeException("请确保键是字符串")
 
-        self.cursor.execute("DELETE FROM cache WHERE key=?", (k,))
-        self.conn.commit()
-
-
-class DiskCache(Cache):
-    """
-    为希望继承此功能的用户实现磁盘缓存。我们使用来自pypi的diskcache Python包来实现此缓存功能。
-    """
-
-    def __init__(self, disk_cache: diskcache.Cache):
-        if not isinstance(disk_cache, diskcache.Cache):
-            raise InvalidCacheTypeException("请确保disk_cache的类型是diskcache.Cache")
-
-        self.disk_cache = disk_cache
-
-    def read(self, k: str) -> bytes:
-        """给定关联的字符串键,从磁盘缓存读取值。"""
-        if not isinstance(k, str):
-            raise InvalidKeyTypeException("请确保键是字符串")
-
-        return self.disk_cache[k]
-
-    def write(self, k: str, v: bytes) -> None:
-        """给定键值对,将值写入磁盘缓存。"""
-        if not isinstance(k, str):
-            raise InvalidKeyTypeException("请确保键是字符串")
-
-        if not isinstance(v, (str, bytes)):
-            raise InvalidValueTypeException("请确保值是字符串或字节类型")
-
-        self.disk_cache[k] = v
-
-    def delete(self, k: str) -> None:
-        """给定关联的字符串键,从磁盘缓存删除值。"""
-        if not isinstance(k, str):
-            raise InvalidKeyTypeException("请确保键是字符串")
-
-        self.disk_cache.delete(k)
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM cache WHERE key=?", (k,))
+            await db.commit()

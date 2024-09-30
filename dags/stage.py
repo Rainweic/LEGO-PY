@@ -11,20 +11,65 @@ The other is by subclassing Stage, SQLiteStage, DiskCacheStage.
 
 from abc import ABC, abstractmethod
 
-import polars as pl
+import time
 import logging
-import diskcache
 import os
 import pickle
 import hashlib
+import aiofiles
+
+import pyarrow as pa
+import pandas as pd
+import polars as pl
+import pyarrow.parquet as pq
+
 from tqdm import tqdm
 
 from .cache import SQLiteCache
 from .serialization import PickleSerializer
-from .cache import SQLiteCache, DiskCache
+from .cache import SQLiteCache
 
 
 LARGE_DATA_PATH = "./cache"
+
+
+def serialize(data):
+    """根据数据类型选择合适的序列化方法，并记录时间"""
+    start_time = time.time()
+    if isinstance(data, pd.DataFrame):
+        buffer = pa.BufferOutputStream()
+        pq.write_table(pa.Table.from_pandas(data), buffer)
+        serialized_data = buffer.getvalue()
+    elif isinstance(data, pl.DataFrame):
+        buffer = pa.BufferOutputStream()
+        pq.write_table(data.to_arrow(), buffer)
+        serialized_data = buffer.getvalue()
+    elif isinstance(data, pl.LazyFrame):
+        buffer = pa.BufferOutputStream()
+        pq.write_table(data.collect().to_arrow(), buffer)
+        serialized_data = buffer.getvalue()
+    else:
+        serialized_data = pickle.dumps(data)
+    elapsed_time = time.time() - start_time
+    logging.info(f"Serialization time: {elapsed_time:.2f} seconds")
+    return serialized_data
+
+
+def deserialize(buffer, data_type):
+    """根据数据类型选择合适的反序列化方法，并记录时间"""
+    start_time = time.time()
+    if data_type == 'pandas':
+        table = pq.read_table(pa.BufferReader(buffer))
+        data = table.to_pandas()
+    elif data_type == 'polars':
+        table = pq.read_table(pa.BufferReader(buffer))
+        data = pl.from_arrow(table)
+    else:
+        data = pickle.loads(buffer)
+    elapsed_time = time.time() - start_time
+    logging.info(f"Deserialization time: {elapsed_time:.2f} seconds")
+    return data
+
 
 
 class Stage(ABC):
@@ -93,23 +138,37 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     def _get_data_path(self, name):
         """生成用于存储数据的文件路径"""
         hash_name = hashlib.md5(name.encode()).hexdigest()
-        return os.path.join(self.get_run_folder(), f"{name}_{hash_name}.pkl")
+        return os.path.join(self.get_run_folder(), f"{name}_{hash_name}")
 
-    def read(self, k: str) -> object:
-        file_path = SQLiteCache.read(self, k)
+    async def read(self, k: str) -> object:
+        file_path = await SQLiteCache.read(self, k)
         if file_path and os.path.exists(file_path):
-            with open(file_path, "rb") as f:
-                return pickle.load(f)
+            async with aiofiles.open(file_path, "rb") as f:
+                data = await f.read()
+                data_type = 'pandas' if file_path.endswith('.pandas') else 'polars' if file_path.endswith('.polars') else 'pickle'
+                try:
+                    return deserialize(data, data_type)
+                except Exception as e:
+                    logging.error(f"反序列化失败: {e}")
+                    raise e
         else:
             logging.warning(f"数据文件不存在: {file_path}")
-            return None
+            raise FileNotFoundError
 
-    def write(self, k: str, v: object) -> None:
+    async def write(self, k: str, v: object) -> None:
         file_path = self._get_data_path(k)
+        data_type = 'pandas' if isinstance(v, pd.DataFrame) else 'polars' if isinstance(v, (pl.DataFrame, pl.LazyFrame)) else 'pickle'
+        file_path += f".{data_type}"
+        logging.info(f"数据{k}开始写入: {file_path}")
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, "wb") as f:
-            pickle.dump(v, f)
-        SQLiteCache.write(self, k, file_path)
+        async with aiofiles.open(file_path, "wb") as f:
+            try:
+                data = serialize(v)
+                await f.write(data)
+            except Exception as e:
+                logging.error(f"序列化失败: {e}")
+                raise e
+        await SQLiteCache.write(self, k, file_path)
         logging.info(f"数据{k}已写入文件: {file_path}")
 
     @property
@@ -220,7 +279,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         raise NotImplementedError()
 
-    def run(self, *args, **kwargs):
+    async def run(self, *args, **kwargs):
         """
         运行阶段的主要方法。
         读取输入数据，调用forward方法，并写入输出数据。
@@ -234,7 +293,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             input_datas = []
             for name in tqdm(self.input_data_names, desc="Reading input data"):
                 try:
-                    data = self.read(name)
+                    data = await self.read(name)
                     if data is None:
                         raise ValueError(f"无法读取输入数据: {name}")
                     input_datas.append(data)
@@ -254,14 +313,14 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                     outs = outs.collect()
                     if self._show_collect:
                         logging.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
-                self.write(o_n, outs)
+                await self.write(o_n, outs)
             else:
                 for o_n, o in zip(self.output_data_names, outs):
                     if self._collect_result and isinstance(o, pl.LazyFrame):
                         o = o.collect()
                         if self._show_collect:
                             logging.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
-                    self.write(o_n, o)
+                    await self.write(o_n, o)
         else:
             logging.warning(f"stage: {self.name} 无任何输出")
 
@@ -314,34 +373,6 @@ class DecoratorStage(BaseStage):
         return self.stage_function(*args, **kwargs)
 
 
-class DiskCacheStage(Stage, PickleSerializer, DiskCache):
-    """
-    Stage type to use if a disk-based cache is required. The disk cache can be
-    used to pass data between stages, or cache values to be used elsewhere
-    downstream. It's completely up to the implementer/user, as this interface
-    to the disk cache is generic, and enables the reading/writing of generic
-    Python objects from/to the disk cache through pickle-based serialization.
-    """
-
-    def __init__(self, cache: diskcache.Cache):
-        DiskCache.__init__(self, disk_cache=cache)
-        Stage.__init__(self)
-
-    def read(self, k: str) -> object:
-        return self.deserialize(DiskCache.read(self, k))
-
-    def write(self, k: str, v: object) -> None:
-        DiskCache.write(self, k, self.serialize(v))
-
-    @property
-    def name(self) -> str:
-        """
-        The name is the final subclass (i.e. the name class defined by the user
-        when subclassing this class.
-        """
-        return self.__class__.__name__
-
-
 class StageExecutor(PickleSerializer, SQLiteCache):
     """
     Context manager for the execution of a stage, or group of stages, of a
@@ -357,26 +388,26 @@ class StageExecutor(PickleSerializer, SQLiteCache):
     stages: The stages that are currently in progress.
     """
 
-    def __init__(self, db_path, stages):
+    async def __init__(self, db_path, stages):
         SQLiteCache.__init__(self, db_path)
 
-        self.pipeline = self.read("pipeline")
+        self.pipeline = await self.read("pipeline")
         self.stages = stages
 
-    def __enter__(self):
-        self.write("in_progress", self.serialize(self.stages))
+    async def __enter__(self):
+        await self.write("in_progress", self.serialize(self.stages))
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        completed = self.deserialize(self.read("in_progress"))
-        current_done = self.read("done")
+    async def __exit__(self, exc_type, exc_val, exc_tb):
+        completed = self.deserialize(await self.read("in_progress"))
+        current_done = await self.read("done")
         if current_done is None:
             current_done = []
         else:
             current_done = self.deserialize(current_done)
         current_done += completed
-        self.write("done", self.serialize(current_done))
-        self.delete("in_progress")
+        await self.write("done", self.serialize(current_done))
+        await self.delete("in_progress")
 
     @staticmethod
     def execute(fn: callable, *args, **kwargs) -> None:

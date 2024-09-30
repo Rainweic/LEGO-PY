@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 import subprocess
 import os
-import traceback
 import shutil
 import multiprocessing
 from datetime import datetime
 import logging
+from tqdm import tqdm  # 导入tqdm库
 
 
-def init():
+try:
     """
     由于物理机和idata平台需要执行的脚本不同
     环境信息加载请放在前面，否则会报pydoop 或 hdfs 加载异常
@@ -16,6 +16,7 @@ def init():
     # 本地shell脚本
     cmd_local_file = "/opt/mrsclient/bigdata_env"
     source_cmd_local = "source " + cmd_local_file + " && env"
+
     # pyspark on yarn
     source_cmd_yarn = "source /opt/pydoop-install/mrsclient/bigdata_env && env"
     if os.path.isfile(cmd_local_file):
@@ -37,14 +38,17 @@ def init():
         if len(var) == 2:
             os.environ[var[0]] = var[1]
 
-try:
     import pydoop.hdfs as hdfs
+
 except BaseException as e:
+    logging.error(e)
     pass
 
 
 class InsecureClient:
+
     def __init__(self, _bucket_name=None, _user=None, _groups=None, **kwargs):
+        
         self.user = _user
         self.fs = hdfs.hdfs(user=_user)
         if not _bucket_name.endswith("/"):
@@ -53,7 +57,6 @@ class InsecureClient:
         self.bucket_name = _bucket_name
         self.logger = logging.getLogger("demo")
         self.logger.setLevel(logging.INFO)
-        init()
 
     def is_file_local(self, local_path):
         self.logger.info("Determining local %s is a file or path...", local_path)
@@ -485,7 +488,8 @@ def multi_process_download_folder(
         download_futures = []
         insecure_client_ins = InsecureClient(obs_root_path, _user=hdfs_user)
         # 遍历HDFS目录中的文件和子目录
-        for hdfs_file in insecure_client_ins.fs.walk(hdfs_path):
+        hdfs_files = list(insecure_client_ins.fs.walk(hdfs_path))
+        for hdfs_file in tqdm(hdfs_files, desc="Gen download tasks"):
             hdfs_file_path = hdfs_file["path"].replace(obs_root_path, "/")
             if hdfs_file["kind"] == "directory":
                 local_full_path = os.path.join(
@@ -508,8 +512,8 @@ def multi_process_download_folder(
                     )
                 )
 
-        # 等待所有任务完成
-        for download_future in download_futures:
+        # 使用tqdm创建另一个进度条来跟踪任务完成情况
+        for download_future in tqdm(download_futures, desc="Running download tasks"):
             download_future.get()
 
 
@@ -570,7 +574,7 @@ def download(
 
     if os.path.isfile(local_path):
         logger.error("download local_path must dir,please check : %s ...", local_path)
-        return None
+        raise RuntimeError("download local_path must dir,please check : %s ...", local_path)
 
     insecure_client_ins = InsecureClient(obs_root_path, _user=hdfs_user)
 
@@ -578,7 +582,7 @@ def download(
         logger.error(
             "download hdfs_path is not exists,please check : %s ...", hdfs_path
         )
-        return None
+        raise RuntimeError("download hdfs_path is not exists,please check : %s ...", hdfs_path)
 
     if insecure_client_ins.hdfs_path_isfile(hdfs_path):
 

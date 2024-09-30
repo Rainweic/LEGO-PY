@@ -20,6 +20,8 @@ import logging
 import datetime
 import hashlib
 import json
+import asyncio
+import aiofiles
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -61,7 +63,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     pipeline = nx.DiGraph()
 
-    def __init__(self, num_cores: int = None, visualize: bool = False, save_dags: bool = True, force_rerun: bool = False):
+    def __init__(self, parallel: int = None, visualize: bool = False, save_dags: bool = True, force_rerun: bool = False):
         """
         我们使用SQLite数据库作为Pipeline的底层缓存。
         """
@@ -72,7 +74,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.stages_to_add = list()
         self.completed_stages = list()
 
-        self.num_cores = num_cores
+        self.parallel = parallel
         self.visualize = visualize
         self.save_dags = save_dags
         self.force_rerun = force_rerun
@@ -81,25 +83,25 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         return self.job_id
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
         # 在退出上下文时可以添加一些清理操作
         
         for stage in self.stages_to_add:
             self.add_stage(stage=stage)
         
-        self.start(num_cores=self.num_cores,
-                   visualize=self.visualize,
-                   save_dags=self.save_dags,
-                   force_rerun=self.force_rerun)
+        await self.start(parallel=self.parallel,
+                         visualize=self.visualize,
+                         save_dags=self.save_dags,
+                         force_rerun=self.force_rerun)
 
     def topological_sort_grouped(self) -> typing.Generator:
         """
         对DAG/pipeline执行拓扑排序的方法。但是,此排序与nx.topological_sort不同,因为它是分组的。
         这意味着DAG每个级别上可以并行运行的阶段被分组在一起。这是为了在用户希望跨核心分配pipeline
-        执行的情况下进行的。在这种情况下,每个组中的阶段将并行运行。但默认行为是串行运行整个pipeline,
+        执行的情况下进行的。在这种情况下,每组中的阶段将并行运行。但默认行为是串行运行整个pipeline,
         包括同一可并行化组内的阶段。
 
         返回:
@@ -149,27 +151,27 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if not nx.is_directed_acyclic_graph(self.pipeline):
             raise DAGVerificationException("Pipeline不再是一个DAG!")
 
-    def run_stage(self, stage_name: str) -> None:
+    async def run_stage(self, stage_name: str) -> None:
         """
-        运行pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
+        运��pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
         并使用所需的'run'方法执行。
 
         参数:
             stage_name <str>: pipeline中阶段的名称。
         """
         logging.info(f"[Running stage] {stage_name}")
-        self.pipeline.nodes[stage_name]["stage_wrapper"].run()
+        await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
 
     def _compute_pipeline_hash(self):
         """
-        计算当前pipeline的hash值，用于检查pipeline是否发生改动。
+        计算当前pipeline的hash值，用于检查pipeline是否发生改动
         """
         nodes = list(self.pipeline.nodes)
         edges = list(self.pipeline.edges)
         pipeline_repr = json.dumps({"nodes": nodes, "edges": edges}, sort_keys=True)
         return hashlib.md5(pipeline_repr.encode()).hexdigest()
 
-    def _save_checkpoint(self):
+    async def _save_checkpoint(self):
         """
         保存检查点到SQLite数据库。
         """
@@ -179,56 +181,48 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                 "pipeline_hash": self._compute_pipeline_hash(),
             }
         )
-        self.write("pipeline_checkpoint", checkpoint_data)
+        await self.write("pipeline_checkpoint", checkpoint_data)
 
-    def _load_checkpoint(self):
+    async def _load_checkpoint(self):
         """
         从SQLite数据库加载检查点。
         """
-        checkpoint = self.read("pipeline_checkpoint")
+        checkpoint = await self.read("pipeline_checkpoint")
         if checkpoint:
             data = json.loads(checkpoint)
             self.completed_stages = data["completed_stages"]
             return data
         return None
 
-    def _delete_checkpoint(self):
+    async def _delete_checkpoint(self):
         """
         删除检查点。
         """
-        self.delete("pipeline_checkpoint")
+        await self.delete("pipeline_checkpoint")
 
-    def start(
+    async def start(
         self,
-        num_cores: int = None,
+        parallel: bool = True,
         visualize: bool = False,
         save_dags: bool = True,
         force_rerun: bool = False,
     ) -> None:
         """
         执行pipeline(及其所有组成阶段)的方法。执行顺序由分组拓扑排序定义。
-        如果num_cores是正整数,则组内的阶段将并行执行(跨核心)。
-        如果num_cores保持为None(默认情况),则整个pipeline(包括同一组内的阶段)将串行运行。
-
-        参数:
-            num_cores [<int>, <None>]: 要分配的核心数。
-            force_rerun [<bool>]: 是否强制重跑所有阶段。
         """
 
-        # TODO pipeline好像会跳过失败的stage
-
         if visualize:
-            self._visualize(save_dags)
+            await self._visualize(save_dags)
 
         logging.info("序列化pipeline并写入SQLite")
-        self.write("pipeline", self.serialize(self.pipeline))
+        await self.write("pipeline", self.serialize(self.pipeline))
 
         if force_rerun:
             logging.info("强制重跑所有阶段")
             self.completed_stages = list()
-            self._delete_checkpoint()
+            await self._delete_checkpoint()
         else:
-            checkpoint_data = self._load_checkpoint()
+            checkpoint_data = await self._load_checkpoint()
             if checkpoint_data:
                 previous_pipeline_hash = checkpoint_data["pipeline_hash"]
                 logging.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
@@ -237,81 +231,59 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
             current_pipeline_hash = self._compute_pipeline_hash()
 
-            # 如果pipeline发生改动，重头运行
-            if (
-                previous_pipeline_hash
-                and previous_pipeline_hash != current_pipeline_hash
-            ):
+            if previous_pipeline_hash and previous_pipeline_hash != current_pipeline_hash:
                 logging.info("Pipeline 发生改动，重头运行")
                 self.completed_stages = list()
 
         sorted_grouped_stages = self.topological_sort_grouped()
         for group in sorted_grouped_stages:
-
-            stages_to_run = [
-                stage for stage in group if stage not in self.completed_stages
-            ]
-
+            stages_to_run = [stage for stage in group if stage not in self.completed_stages]
             logging.info("处理组: %s", stages_to_run)
 
-            if num_cores:
-                pool = ThreadPool(num_cores)
-                with StageExecutor(self.db_path, stages_to_run) as stage_executor:
-                    stage_executor.execute(pool.map, self.run_stage, stages_to_run)
+            if parallel:
+                tasks = [self.run_stage(stage) for stage in stages_to_run]
+                await asyncio.gather(*tasks)
             else:
                 for stage in stages_to_run:
-                    with StageExecutor(self.db_path, [stage]) as stage_executor:
-                        stage_executor.execute(self.run_stage, stage)
+                    await self.run_stage(stage)
                     self.completed_stages.append(stage)
-                    self._save_checkpoint()  # 在每个阶段运行完后保存检查点
+                    await self._save_checkpoint()
 
-        self._delete_checkpoint()
+        await self._delete_checkpoint()
+        logging.info("Finish all tasks.")
 
-    def get_graph_last_output(self):
-        return self.read(self.completed_stages[-1])
+    async def get_graph_last_output(self):
+        return await self.read(self.completed_stages[-1])
     
-    def get_output(self, output_name):
-        file_path = self.read(output_name)
+    async def get_output(self, output_name):
+        file_path = await self.read(output_name)
         if file_path and os.path.exists(file_path):
-            with open(file_path, "rb") as f:
-                return pickle.load(f)
+            async with aiofiles.open(file_path, "rb") as f:
+                return pickle.loads(await f.read())
         else:
             logging.warning(f"数据文件不存在: {file_path}")
             return None
 
-    def _visualize(self, save_dags: bool = False):
+
+    async def _visualize(self, save_dags: bool = False):
         """
-        通过渲染matplotlib图形来可视化pipeline/DAG的方法，并可选择保存到本地。
-
-        参数:
-        save_path (str, optional): 保存图像的路径。如果为None，则使用默认路径。
-
-        参考:
-            https://stackoverflow.com/questions/10379448/plotting-directed-graphs-in-python-in-a-way-that-show-all-edges-separately
+        异步地通过渲染matplotlib图形来可视化pipeline/DAG的方法，并可选择保存到本地。
         """
-
         drawing = nx.drawing.nx_pydot.to_pydot(self.pipeline)
-
         png_str = drawing.create_png()
         sio = BytesIO()
         sio.write(png_str)
         sio.seek(0)
 
         img = mpimg.imread(sio)
-        plt.figure(figsize=(12, 8))  # 设置图像大小
+        plt.figure(figsize=(12, 8))
         plt.imshow(img)
-        plt.axis("off")  # 关闭坐标轴
+        plt.axis("off")
 
-        # 保存图像到本地
         if save_dags:
-            # 使用 job_id 创建默认的保存路径
             save_path = os.path.join("./visualizations", f"pipeline_{self.job_id}.png")
-
-            # 确保保存路径的目录存在
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
             plt.savefig(save_path, format="png", dpi=300, bbox_inches="tight")
             print(f"Pipeline visualization saved to: {save_path}")
-
         else:
             plt.show()
