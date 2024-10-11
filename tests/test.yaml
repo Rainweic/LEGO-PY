@@ -1,0 +1,71 @@
+global_args: {}
+pipeline:
+- args:
+    force_rerun: false
+    save_dags: true
+    visualize: true
+  name: ''
+  stages:
+  - HDFSCSVReadStage:
+      args:
+        path: path1
+      collect_result: false
+      name: initNode1
+      stage: HDFSCSVReadStage
+  - HDFSCSVReadStage:
+      args:
+        path: path2
+      collect_result: false
+      name: initNode2
+      stage: HDFSCSVReadStage
+  - MultiJoin:
+      after:
+      - initNode1
+      - initNode2
+      args:
+        how: inner
+        'on': mem_id
+      collect_result: false
+      inputs:
+      - initNode1.0
+      - initNode2.0
+      name: initNode3
+      stage: MultiJoin
+  - XGB:
+      after:
+      - initNode3
+      - 自定义映射-2
+      args:
+        label_col: y
+        num_round: 100
+        train_cols:
+        - xxx
+        train_params: "{\n        \"max_depth\": 6,\n        \"eta\": 0.3,\n     \
+          \   \"objective\": \"binary:logistic\",\n        \"eval_metric\": \"auc\"\
+          ,\n        \"subsample\": 0.8,\n        \"colsample_bytree\": 0.8,\n   \
+          \     \"gamma\": 0.1,\n        \"lambda\": 1,\n        \"alpha\": 0,\n \
+          \       \"scale_pos_weight\": 1\n    }"
+      collect_result: false
+      inputs:
+      - initNode3.0
+      - 自定义映射-2.0
+      name: initNode4
+      stage: XGB
+  - HDFSORCReadStage:
+      args:
+        path: path3
+        select_cols:
+        - a
+        - d
+      collect_result: false
+      name: HDFS-ORC下载-1
+      stage: HDFSORCReadStage
+  - CastStage:
+      after:
+      - HDFS-ORC下载-1
+      args: {}
+      collect_result: false
+      inputs:
+      - HDFS-ORC下载-1.0
+      name: 自定义映射-2
+      stage: CastStage

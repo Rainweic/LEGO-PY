@@ -1,0 +1,373 @@
+{
+    "cells": [
+        {
+            "shape": "dag-edge",
+            "attrs": {
+                "line": {
+                    "strokeDasharray": 0,
+                    "style": {
+                        "animation": ""
+                    }
+                }
+            },
+            "zIndex": -1,
+            "id": "initEdge1",
+            "animated": false,
+            "source": {
+                "cell": "initNode1",
+                "port": "o-0"
+            },
+            "target": {
+                "cell": "initNode3",
+                "port": "i-0"
+            }
+        },
+        {
+            "shape": "dag-edge",
+            "attrs": {
+                "line": {
+                    "strokeDasharray": 0,
+                    "style": {
+                        "animation": ""
+                    }
+                }
+            },
+            "zIndex": -1,
+            "id": "initEdge2",
+            "animated": false,
+            "source": {
+                "cell": "initNode2",
+                "port": "o-0"
+            },
+            "target": {
+                "cell": "initNode3",
+                "port": "i-1"
+            }
+        },
+        {
+            "shape": "dag-edge",
+            "attrs": {
+                "line": {
+                    "strokeDasharray": 0,
+                    "style": {
+                        "animation": ""
+                    }
+                }
+            },
+            "zIndex": -1,
+            "id": "initEdge3",
+            "animated": false,
+            "source": {
+                "cell": "initNode3",
+                "port": "o-0"
+            },
+            "target": {
+                "cell": "initNode4",
+                "port": "i-0"
+            }
+        },
+        {
+            "position": {
+                "x": 320,
+                "y": 200
+            },
+            "size": {
+                "width": 180,
+                "height": 36
+            },
+            "view": "react-shape-view",
+            "shape": "dag-node",
+            "ports": {
+                "groups": {
+                    "inputData": {
+                        "position": "top",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputData": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputModel": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "id": "o-0",
+                        "group": "outputData"
+                    }
+                ]
+            },
+            "id": "initNode1",
+            "data": {
+                "label": "HDFS-CSV下载",
+                "key": "HDFSCSVReadStage",
+                "status": "default",
+                "id": "initNode1",
+                "args": {
+                    "path": "adfa"
+                }
+            },
+            "zIndex": 1
+        },
+        {
+            "position": {
+                "x": 670,
+                "y": 200
+            },
+            "size": {
+                "width": 180,
+                "height": 36
+            },
+            "view": "react-shape-view",
+            "shape": "dag-node",
+            "ports": {
+                "groups": {
+                    "inputData": {
+                        "position": "top",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputData": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputModel": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "id": "o-0",
+                        "group": "outputData"
+                    }
+                ]
+            },
+            "id": "initNode2",
+            "data": {
+                "label": "HDFS-CSV下载2",
+                "key": "HDFSCSVReadStage",
+                "status": "default",
+                "id": "initNode2",
+                "args": {
+                    "path": "da"
+                }
+            },
+            "zIndex": 2
+        },
+        {
+            "position": {
+                "x": 490,
+                "y": 350
+            },
+            "size": {
+                "width": 180,
+                "height": 36
+            },
+            "view": "react-shape-view",
+            "shape": "dag-node",
+            "ports": {
+                "groups": {
+                    "inputData": {
+                        "position": "top",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputData": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputModel": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "id": "i-0",
+                        "group": "inputData"
+                    },
+                    {
+                        "id": "i-1",
+                        "group": "inputData"
+                    },
+                    {
+                        "id": "o-0",
+                        "group": "outputData"
+                    }
+                ]
+            },
+            "id": "initNode3",
+            "data": {
+                "args": {
+                    "on": "mem",
+                    "how": "left"
+                },
+                "label": "Join",
+                "key": "MultiJoin",
+                "status": "default",
+                "id": "initNode3"
+            },
+            "zIndex": 3
+        },
+        {
+            "position": {
+                "x": 490,
+                "y": 500
+            },
+            "size": {
+                "width": 180,
+                "height": 36
+            },
+            "view": "react-shape-view",
+            "shape": "dag-node",
+            "ports": {
+                "groups": {
+                    "inputData": {
+                        "position": "top",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputData": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputModel": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "id": "i-0",
+                        "group": "inputData"
+                    },
+                    {
+                        "id": "i-1",
+                        "group": "inputData"
+                    },
+                    {
+                        "id": "o-0",
+                        "group": "outputData"
+                    },
+                    {
+                        "id": "o-1",
+                        "group": "outputModel"
+                    }
+                ]
+            },
+            "id": "initNode4",
+            "data": {
+                "args": {
+                    "label_col": "y",
+                    "train_cols": [
+                        "dafa",
+                        "2"
+                    ],
+                    "num_round": 100,
+                    "train_params": "{\n        \"max_depth\": 6,\n        \"eta\": 0.3,\n        \"objective\": \"binary:logistic\",\n        \"eval_metric\": \"auc\",\n        \"subsample\": 0.8,\n        \"colsample_bytree\": 0.8,\n        \"gamma\": 0.1,\n        \"lambda\": 1,\n        \"alpha\": 0,\n        \"scale_pos_weight\": 1\n    }"
+                },
+                "label": "XGB",
+                "key": "XGB",
+                "status": "default",
+                "id": "initNode4"
+            },
+            "zIndex": 4
+        }
+    ]
+}
