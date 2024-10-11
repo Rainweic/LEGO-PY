@@ -17,6 +17,7 @@ def json2yaml(str_json):
             
             nodes[item["id"]] = {
                 "name": item["id"],
+                "label": item["data"]["label"],
                 "stage": item["data"]["key"],
                 "args": item["data"].get("args", {}),
                 "collect_result": item.get("collect_result", False)
@@ -50,7 +51,26 @@ def json2yaml(str_json):
             # print(nodes[source_node_name])
             # print(nodes[target_node_name])
 
-    stages = [{node["stage"]: node} for node in nodes.values()]
+    # 这里的stages需要有一个先后顺序，要不然不能正常生成pipeline
+    def topological_sort(nodes):
+        visited = set()
+        result = []
+        
+        def dfs(node):
+            if node in visited:
+                return
+            visited.add(node)
+            for dep in nodes[node].get('after', []):
+                dfs(dep)
+            result.append(node)
+        
+        for node in nodes:
+            dfs(node)
+        
+        return result
+    sorted_nodes = topological_sort(nodes)
+    stages = [{nodes[node]['stage']: nodes[node]} for node in sorted_nodes]
+    
     yaml_content = {
         "global_args": {},
         "pipeline": [{

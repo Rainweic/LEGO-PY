@@ -67,6 +67,28 @@
             }
         },
         {
+            "shape": "dag-edge",
+            "attrs": {
+                "line": {
+                    "strokeDasharray": 0,
+                    "style": {
+                        "animation": ""
+                    }
+                }
+            },
+            "zIndex": -1,
+            "id": "6d218f5a-08fc-4290-9fcd-b435a1a881b0",
+            "animated": false,
+            "source": {
+                "cell": "3c551522-a480-4b5f-a995-3cdd196c0805",
+                "port": "o-0"
+            },
+            "target": {
+                "cell": "initNode4",
+                "port": "i-1"
+            }
+        },
+        {
             "position": {
                 "x": 320,
                 "y": 200
@@ -130,7 +152,7 @@
                 "status": "default",
                 "id": "initNode1",
                 "args": {
-                    "path": "adfa"
+                    "path": "path1"
                 }
             },
             "zIndex": 1
@@ -194,12 +216,12 @@
             },
             "id": "initNode2",
             "data": {
-                "label": "HDFS-CSV下载2",
+                "label": "HDFS-CSV下载",
                 "key": "HDFSCSVReadStage",
                 "status": "default",
                 "id": "initNode2",
                 "args": {
-                    "path": "da"
+                    "path": "path2"
                 }
             },
             "zIndex": 2
@@ -273,7 +295,7 @@
             "data": {
                 "args": {
                     "on": "mem",
-                    "how": "left"
+                    "how": "inner"
                 },
                 "label": "Join",
                 "key": "MultiJoin",
@@ -355,10 +377,6 @@
             "data": {
                 "args": {
                     "label_col": "y",
-                    "train_cols": [
-                        "dafa",
-                        "2"
-                    ],
                     "num_round": 100,
                     "train_params": "{\n        \"max_depth\": 6,\n        \"eta\": 0.3,\n        \"objective\": \"binary:logistic\",\n        \"eval_metric\": \"auc\",\n        \"subsample\": 0.8,\n        \"colsample_bytree\": 0.8,\n        \"gamma\": 0.1,\n        \"lambda\": 1,\n        \"alpha\": 0,\n        \"scale_pos_weight\": 1\n    }"
                 },
@@ -368,6 +386,78 @@
                 "id": "initNode4"
             },
             "zIndex": 4
+        },
+        {
+            "position": {
+                "x": 840,
+                "y": 350
+            },
+            "size": {
+                "width": 180,
+                "height": 36
+            },
+            "view": "react-shape-view",
+            "shape": "dag-node",
+            "ports": {
+                "groups": {
+                    "inputData": {
+                        "position": "top",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputData": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputModel": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "id": "o-0",
+                        "group": "outputData"
+                    }
+                ]
+            },
+            "id": "3c551522-a480-4b5f-a995-3cdd196c0805",
+            "data": {
+                "key": "HDFSORCReadStage",
+                "label": "HDFS-ORC下载-1",
+                "status": "default",
+                "id": "3c551522-a480-4b5f-a995-3cdd196c0805",
+                "args": {
+                    "path": "path3",
+                    "select_cols": [
+                        "ddd"
+                    ]
+                }
+            },
+            "zIndex": 5
         }
     ]
 }
