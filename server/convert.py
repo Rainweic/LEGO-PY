@@ -20,7 +20,7 @@ def json2yaml(str_json):
                 "label": item["data"]["label"],
                 "stage": item["data"]["key"],
                 "args": item["data"].get("args", {}),
-                "collect_result": item.get("collect_result", False)
+                "collect_result": item["data"].get("collect", False)
             }
 
             # print(nodes[item["id"]])
