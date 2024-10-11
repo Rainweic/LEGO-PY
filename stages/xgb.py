@@ -27,6 +27,9 @@ class XGB(BaseStage):
         self.label_col = label_col
         self.train_cols = train_cols
         self.num_round = num_round
+        if isinstance(train_params, str):
+            import json
+            train_params = json.loads(train_params)
         self.train_params = train_params
 
     def train(self, train_df: pl.DataFrame, eval_df: pl.DataFrame = None):
