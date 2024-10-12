@@ -81,7 +81,7 @@ def get_stage_status():
         cache = SQLiteCache()
         
         # 从SQLite数据库中读取stage状态
-        status = asyncio.run(cache.read(f"stage_status_{job_id}_{stage_name}"))
+        status = asyncio.run(cache.read(f"{stage_name}"))
         
         if status is None:
             status = 'default'
