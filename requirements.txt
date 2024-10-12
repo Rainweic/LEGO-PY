@@ -6,3 +6,4 @@ networkx==3.3
 pandas==2.2.2
 pydoop>=2.0.0
 scikit_learn==1.5.2
+flask

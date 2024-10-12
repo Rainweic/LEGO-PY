@@ -48,13 +48,15 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
     for pipeline_config in pipelines_config:
 
+        job_id = pipeline_config.get("name", None)
+
         pipeline_args = pipeline_config.get("args", {})
         parallel = pipeline_args.get("parallel", None)
         visualize = pipeline_args.get("visualize", False)
         save_dags = pipeline_args.get("save_dags", True)
         force_rerun = pipeline_args.get("force_rerun", False)  
 
-        async with Pipeline(parallel=parallel, visualize=visualize, save_dags=save_dags, force_rerun=force_rerun) as p:
+        async with Pipeline(parallel=parallel, visualize=visualize, save_dags=save_dags, force_rerun=force_rerun, job_id=job_id) as p:
 
             instance = {}
             # print(pipeline_config['stages'])

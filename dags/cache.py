@@ -87,6 +87,21 @@ class SQLiteCache(Cache):
             await db.execute("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", (k, v))
             await db.commit()
 
+    def write_sync(self, k: str, v: bytes) -> None:
+        """给定键值对,将值写入SQLite的同步版本。"""
+        import sqlite3
+        
+        if not isinstance(k, str):
+            raise InvalidKeyTypeException("请确保键是字符串")
+
+        if not isinstance(v, (str, bytes)):
+            raise InvalidValueTypeException("请确保值是字符串或字节类型")
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value BLOB)")
+            conn.execute("INSERT OR REPLACE INTO cache (key, value) VALUES (?, ?)", (k, v))
+            conn.commit()
+
     async def delete(self, k: str) -> None:
         """给定关联的字符串键,从SQLite删除值。"""
         await self.init()

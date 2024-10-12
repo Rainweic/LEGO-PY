@@ -22,6 +22,7 @@ import hashlib
 import json
 import asyncio
 import aiofiles
+import enum
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -51,6 +52,13 @@ class DAGVerificationException(DAGException):
     pass
 
 
+class StageStatus(enum.Enum):
+    DEFAULT = "default"
+    RUNNING = "running"
+    FAILED = "failed"
+    SUCCESS = "success"
+
+
 class Pipeline(CloudPickleSerializer, SQLiteCache):
     """
     pydags的Pipeline功能的实现。Pipeline的目标是协调DAG组成阶段的执行,
@@ -63,13 +71,16 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     pipeline = nx.DiGraph()
 
-    def __init__(self, parallel: int = None, visualize: bool = False, save_dags: bool = True, force_rerun: bool = False):
+    def __init__(self, parallel: int = None, visualize: bool = False, save_dags: bool = True, force_rerun: bool = False, job_id=None):
         """
         我们使用SQLite数据库作为Pipeline的底层缓存。
         """
         self.db_path = "pipeline.db"
         SQLiteCache.__init__(self, self.db_path)
-        self.job_id = self.generate_job_id()
+        if job_id:
+            self.job_id = job_id
+        else:
+            self.job_id = self.generate_job_id()
         self.stage_counter = 0
         self.stages_to_add = list()
         self.completed_stages = list()
@@ -78,6 +89,8 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.visualize = visualize
         self.save_dags = save_dags
         self.force_rerun = force_rerun
+
+        self._initialize_stage_statuses()
 
     def generate_job_id(self):
         self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -153,14 +166,21 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     async def run_stage(self, stage_name: str) -> None:
         """
-        运��pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
+        运行pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
         并使用所需的'run'方法执行。
 
         参数:
             stage_name <str>: pipeline中阶段的名称。
         """
         logging.info(f"[Running stage] {stage_name}")
-        await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
+        await self.update_stage_status(stage_name, StageStatus.RUNNING)
+        try:
+            await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
+            await self.update_stage_status(stage_name, StageStatus.SUCCESS)
+        except Exception as e:
+            logging.error(f"Stage {stage_name} failed: {str(e)}")
+            await self.update_stage_status(stage_name, StageStatus.FAILED)
+            raise
 
     def _compute_pipeline_hash(self):
         """
@@ -199,6 +219,26 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         删除检查点。
         """
         await self.delete("pipeline_checkpoint")
+
+    def _initialize_stage_statuses(self):
+        """
+        初始化所有stage的状态为DEFAULT
+        """
+        for stage_name in self.pipeline.nodes:
+            self.write_sync(f"stage_status_{self.job_id}_{stage_name}", StageStatus.DEFAULT)
+
+    async def update_stage_status(self, stage_name: str, status: StageStatus):
+        """
+        更新stage的状态
+        """
+        await self.write(f"stage_status_{self.job_id}_{stage_name}", status.value)
+
+    async def get_stage_status(self, stage_name: str):
+        """
+        获取stage的状态
+        """
+        status = await self.read(f"stage_status_{self.job_id}_{stage_name}")
+        return StageStatus(status) if status else StageStatus.DEFAULT
 
     async def start(
         self,
@@ -242,12 +282,21 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
             if parallel:
                 tasks = [self.run_stage(stage) for stage in stages_to_run]
-                await asyncio.gather(*tasks)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for stage, result in zip(stages_to_run, results):
+                    if isinstance(result, Exception):
+                        logging.error(f"Stage {stage} failed: {str(result)}")
+                    else:
+                        self.completed_stages.append(stage)
             else:
                 for stage in stages_to_run:
-                    await self.run_stage(stage)
-                    self.completed_stages.append(stage)
-                    await self._save_checkpoint()
+                    try:
+                        await self.run_stage(stage)
+                        self.completed_stages.append(stage)
+                        await self._save_checkpoint()
+                    except Exception as e:
+                        logging.error(f"Stage {stage} failed: {str(e)}")
+                        break
 
         await self._delete_checkpoint()
         logging.info("Finish all tasks.")
