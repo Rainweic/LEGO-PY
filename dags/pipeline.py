@@ -240,6 +240,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         status = await self.read(f"stage_status_{self.job_id}_{stage_name}")
         return StageStatus(status) if status else StageStatus.DEFAULT
 
+    # 主要函数入口
     async def start(
         self,
         parallel: bool = True,
