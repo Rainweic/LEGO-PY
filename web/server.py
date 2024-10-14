@@ -5,7 +5,6 @@ from dags.pipeline import StageStatus
 from utils.convert import json2yaml
 from dags.parser import load_pipelines_from_yaml
 
-import os
 import asyncio
 import tempfile
 import traceback
@@ -27,6 +26,7 @@ def handle_options_request():
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response
 
+
 # 新增一个函数来处理错误
 def handle_error(e):
     error_message = f"An error occurred: {str(e)}\n{traceback.format_exc()}"
@@ -38,9 +38,10 @@ def handle_error(e):
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response, 500
 
+
 # 新增一个函数来处理图表的重新运行逻辑
-def rerun_graph_logic(graph_json_str):
-    graph_yaml, job_id = json2yaml(graph_json_str)
+def run_graph_logic(graph_json_str, force_rerun):
+    graph_yaml, job_id = json2yaml(graph_json_str, force_rerun=force_rerun)
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
         temp_file.write(graph_yaml)
         temp_file_path = temp_file.name
@@ -57,6 +58,7 @@ def rerun_graph_logic(graph_json_str):
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response
 
+
 @app.route('/rerun_graph', methods=['POST', 'OPTIONS'])
 def rerun_graph():
     if request.method == "OPTIONS":
@@ -66,15 +68,29 @@ def rerun_graph():
             graph_json_str = request.json.get('data')
             if not graph_json_str:
                 return jsonify({"error": "缺少 data 参数"}), 400
-            return rerun_graph_logic(graph_json_str)
+            return run_graph_logic(graph_json_str, force_rerun=True)
         except Exception as e:
             return handle_error(e)
         
+
+@app.route('/continue_graph', methods=['POST', 'OPTIONS'])
+def continue_graph():
+    if request.method == "OPTIONS":
+        return handle_options_request()
+    elif request.method == "POST":
+        try:
+            graph_json_str = request.json.get('data')
+            if not graph_json_str:
+                return jsonify({"error": "缺少 data 参数"}), 400
+            return run_graph_logic(graph_json_str, force_rerun=False)
+        except Exception as e:
+            return handle_error(e)
+        
+
 @app.route('/get_stage_status', methods=['GET'])
 def get_stage_status():
     try:
 
-        job_id = request.args.get('job_id')
         stage_name = request.args.get('stage_name')
 
         # 创建一个SQLiteCache实例
