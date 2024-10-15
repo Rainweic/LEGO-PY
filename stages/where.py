@@ -17,7 +17,7 @@ class Where(CustomStage):
         forward(lf: pl.LazyFrame) -> pl.LazyFrame: 执行过滤操作并返回过滤后的 LazyFrame。
     """
 
-    def __init__(self, *conditions: list[str]):
+    def __init__(self, conditions: list[str]):
         super().__init__(n_outputs=1)
         self.conditions = [c for c in conditions if c]
 
