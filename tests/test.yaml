@@ -3,62 +3,73 @@ pipeline:
 - args:
     force_rerun: false
     save_dags: true
-    visualize: true
-  name: ''
+    visualize: false
+  name: '20241014_164730'
   stages:
   - HDFSCSVReadStage:
       args:
-        path: path1
-      collect_result: false
-      label: HDFS-CSV下载
-      name: initNode1
+        path: /projects/growth/test/analysis_tools/alg_label/coupon_planned_strategy/expose_label/single/2024-09-05
+      collect_result: true
+      label: label读取
+      name: d612c7c6-8f8a-45eb-9ac7-41635d54af3e
       stage: HDFSCSVReadStage
-  - HDFSCSVReadStage:
-      args:
-        path: path2
-      collect_result: false
-      label: HDFS-CSV下载
-      name: initNode2
-      stage: HDFSCSVReadStage
-  - MultiJoin:
+  - CastStage:
       after:
-      - initNode1
-      - initNode2
+      - d612c7c6-8f8a-45eb-9ac7-41635d54af3e
       args:
-        how: inner
-        'on': mem
-      collect_result: false
+        col_name: label_value
+        map: '{1:0, 2:0, 0:1, -1:-1}'
+        recover_ori_col: true
+      collect_result: true
       inputs:
-      - initNode1.0
-      - initNode2.0
-      label: Join
-      name: initNode3
-      stage: MultiJoin
-  - HDFSORCReadStage:
-      args:
-        path: path3
-        select_cols:
-        - ddd
-      collect_result: false
-      label: HDFS-ORC下载-1
-      name: 3c551522-a480-4b5f-a995-3cdd196c0805
-      stage: HDFSORCReadStage
-  - XGB:
+      - d612c7c6-8f8a-45eb-9ac7-41635d54af3e.0
+      label: 自定义映射
+      name: 5550e17f-0e1b-4164-8074-c32ffe201152
+      stage: CastStage
+  - Where:
       after:
-      - initNode3
-      - 3c551522-a480-4b5f-a995-3cdd196c0805
+      - 5550e17f-0e1b-4164-8074-c32ffe201152
       args:
-        label_col: y
-        num_round: 100
-        train_params: "{\n        \"max_depth\": 6,\n        \"eta\": 0.3,\n     \
-          \   \"objective\": \"binary:logistic\",\n        \"eval_metric\": \"auc\"\
-          ,\n        \"subsample\": 0.8,\n        \"colsample_bytree\": 0.8,\n   \
-          \     \"gamma\": 0.1,\n        \"lambda\": 1,\n        \"alpha\": 0,\n \
-          \       \"scale_pos_weight\": 1\n    }"
-      collect_result: false
+        conditions:
+        - label_value!= -1
+        - position_id == 'W101'
+      collect_result: true
       inputs:
-      - initNode3.0
-      - 3c551522-a480-4b5f-a995-3cdd196c0805.0
-      label: XGB
-      name: initNode4
-      stage: XGB
+      - 5550e17f-0e1b-4164-8074-c32ffe201152.0
+      label: 过滤
+      name: ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b
+      stage: Where
+  - SelectCols:
+      after:
+      - ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b
+      args:
+        cols:
+        - member_id
+        - label_value
+        - dt
+      collect_result: true
+      inputs:
+      - ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b.0
+      label: 特征选择-4
+      name: 3c08ea37-03fd-465f-a68a-a212838449c4
+      stage: SelectCols
+  - SqlStage:
+      after:
+      - 3c08ea37-03fd-465f-a68a-a212838449c4
+      args:
+        sql_str: "WITH sample_counts AS (\n    SELECT \n        SUM(CASE WHEN label_value\
+          \ = 1 THEN 1 ELSE 0 END) AS positive_count,\n        SUM(CASE WHEN label_value\
+          \ = 0 THEN 1 ELSE 0 END) AS negative_count,\n        {n_all_samples} //\
+          \ 2 AS target_sample_count\n),\nsample_size AS (\n    SELECT LEAST(positive_count,\
+          \ negative_count, target_sample_count) AS n_samples\n    FROM sample_counts\n\
+          )\n\nSELECT *\nFROM (\n    (SELECT * \n        FROM self \n        WHERE\
+          \ label_value = 1\n        ORDER BY RANDOM()\n        LIMIT (SELECT n_samples\
+          \ FROM sample_size))\n    \n    UNION ALL\n    \n    (SELECT * \n      \
+          \  FROM self \n        WHERE label_value = 0\n        ORDER BY RANDOM()\n\
+          \        LIMIT (SELECT n_samples FROM sample_size))\n)"
+      collect_result: true
+      inputs:
+      - 3c08ea37-03fd-465f-a68a-a212838449c4.0
+      label: 正负样本均衡
+      name: e2101b1a-e1a3-4832-bf8f-475761aeedcc
+      stage: SqlStage

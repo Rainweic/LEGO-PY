@@ -12,7 +12,7 @@ data = {
 df = pl.DataFrame(data).lazy()
 
 # 示例 1: 根据单个条件过滤
-where_stage = Where("age > 30")
+where_stage = Where(["age > 30"])
 filtered_df = where_stage.forward(df).collect()
 print(filtered_df)
 # 断言结果
@@ -25,7 +25,7 @@ expected_df_1 = pl.DataFrame(expected_data_1)
 assert filtered_df.equals(expected_df_1), "Test 1 failed"
 
 # 示例 2: 根据多个条件过滤
-where_stage = Where("age > 30", "city = 'Chicago'")
+where_stage = Where(["age > 30", "city = 'Chicago'"])
 filtered_df = where_stage.forward(df).collect()
 print(filtered_df)
 # 断言结果

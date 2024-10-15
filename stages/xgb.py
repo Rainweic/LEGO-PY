@@ -77,14 +77,18 @@ class XGB(BaseStage):
 
 class XGBImportance(XGB):
 
-    def __init__(self, label_col: str, train_cols: list[str]=None, num_round=100, train_params: dict=base_params, topK: int=20,
+    def __init__(self, label_col: str=None, train_cols: list[str]=None, num_round=100, train_params: dict=base_params, topK: int=20,
                  importance_type: str="gain"):
         super().__init__(label_col=label_col, train_cols=train_cols, num_round=num_round, train_params=train_params)
         self._n_outputs = 2
         self.topK = topK
         self.importance_type = importance_type
 
-    def forward(self, train_df: pl.DataFrame, transform_df: pl.DataFrame=None):
+    def forward(self, train_df: pl.DataFrame, model_xgb_f_importance: list[str]):
+
+        if model_xgb_f_importance:
+            # 上一个模型复用
+            return train_df.lazy().select(out_features), model_xgb_f_importance
 
         model = self.train(train_df, None)
 
@@ -99,10 +103,7 @@ class XGBImportance(XGB):
             logging.info(f"{feature}: {score}")
             out_features.append(feature)
 
-        if transform_df is not None:
-            return out_features, transform_df.lazy().select(out_features)
-        else:
-            return out_features, None
+        return train_df.lazy().select(out_features), out_features
 
         
 

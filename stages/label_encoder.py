@@ -20,10 +20,10 @@ class CastStage(CustomStage):
 
     """
 
-    def __init__(self, col_name: str, map: dict, recover_ori_col: bool = True, out_col_name: str = None):
+    def __init__(self, col_name: str, map: str, recover_ori_col: bool = True, out_col_name: str = None):
         super().__init__(n_outputs=1)
         self.col_name = col_name
-        self.map = map
+        self.map = eval(map)
         self.recover_ori_col = recover_ori_col
         self.out_col_name = out_col_name
 

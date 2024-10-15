@@ -11,14 +11,14 @@
                 }
             },
             "zIndex": -1,
-            "id": "initEdge1",
+            "id": "28c876bb-3161-4a9f-8ca6-440a054be6be",
             "animated": false,
             "source": {
-                "cell": "initNode1",
+                "cell": "d612c7c6-8f8a-45eb-9ac7-41635d54af3e",
                 "port": "o-0"
             },
             "target": {
-                "cell": "initNode3",
+                "cell": "5550e17f-0e1b-4164-8074-c32ffe201152",
                 "port": "i-0"
             }
         },
@@ -33,15 +33,14 @@
                 }
             },
             "zIndex": -1,
-            "id": "initEdge2",
+            "id": "6118978c-d77d-4ee7-b95d-c816fb9d013b",
             "animated": false,
             "source": {
-                "cell": "initNode2",
+                "cell": "5550e17f-0e1b-4164-8074-c32ffe201152",
                 "port": "o-0"
             },
             "target": {
-                "cell": "initNode3",
-                "port": "i-1"
+                "cell": "ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b"
             }
         },
         {
@@ -55,14 +54,14 @@
                 }
             },
             "zIndex": -1,
-            "id": "initEdge3",
+            "id": "64bb0faa-8b7e-423e-b18d-013437d0d328",
             "animated": false,
             "source": {
-                "cell": "initNode3",
+                "cell": "ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b",
                 "port": "o-0"
             },
             "target": {
-                "cell": "initNode4",
+                "cell": "3c08ea37-03fd-465f-a68a-a212838449c4",
                 "port": "i-0"
             }
         },
@@ -77,21 +76,21 @@
                 }
             },
             "zIndex": -1,
-            "id": "6d218f5a-08fc-4290-9fcd-b435a1a881b0",
+            "id": "26f3d350-dce3-447f-ad7b-111e774fa866",
             "animated": false,
             "source": {
-                "cell": "3c551522-a480-4b5f-a995-3cdd196c0805",
+                "cell": "3c08ea37-03fd-465f-a68a-a212838449c4",
                 "port": "o-0"
             },
             "target": {
-                "cell": "initNode4",
-                "port": "i-1"
+                "cell": "e2101b1a-e1a3-4832-bf8f-475761aeedcc",
+                "port": "i-0"
             }
         },
         {
             "position": {
-                "x": 320,
-                "y": 200
+                "x": 240,
+                "y": 80
             },
             "size": {
                 "width": 180,
@@ -145,21 +144,98 @@
                     }
                 ]
             },
-            "id": "initNode1",
+            "id": "d612c7c6-8f8a-45eb-9ac7-41635d54af3e",
             "data": {
-                "label": "HDFS-CSV下载",
                 "key": "HDFSCSVReadStage",
+                "label": "label读取",
                 "status": "default",
-                "id": "initNode1",
+                "id": "d612c7c6-8f8a-45eb-9ac7-41635d54af3e",
+                "collect": true,
                 "args": {
-                    "path": "path1"
+                    "path": "/projects/growth/test/analysis_tools/alg_label/coupon_planned_strategy/expose_label/single/2024-09-05"
                 }
             },
             "zIndex": 1
         },
         {
             "position": {
-                "x": 670,
+                "x": 240,
+                "y": 140
+            },
+            "size": {
+                "width": 180,
+                "height": 36
+            },
+            "view": "react-shape-view",
+            "shape": "dag-node",
+            "ports": {
+                "groups": {
+                    "inputData": {
+                        "position": "top",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputData": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    },
+                    "outputModel": {
+                        "position": "bottom",
+                        "attrs": {
+                            "circle": {
+                                "r": 4,
+                                "magnet": true,
+                                "stroke": "#C2C8D5",
+                                "strokeWidth": 1,
+                                "fill": "#fff"
+                            }
+                        }
+                    }
+                },
+                "items": [
+                    {
+                        "id": "i-0",
+                        "group": "inputData"
+                    },
+                    {
+                        "id": "o-0",
+                        "group": "outputData"
+                    }
+                ]
+            },
+            "id": "5550e17f-0e1b-4164-8074-c32ffe201152",
+            "data": {
+                "key": "CastStage",
+                "label": "自定义映射",
+                "status": "default",
+                "id": "5550e17f-0e1b-4164-8074-c32ffe201152",
+                "collect": true,
+                "args": {
+                    "col_name": "label_value",
+                    "map": "{1:0, 2:0, 0:1, -1:-1}",
+                    "recover_ori_col": true
+                }
+            },
+            "zIndex": 2
+        },
+        {
+            "position": {
+                "x": 240,
                 "y": 200
             },
             "size": {
@@ -209,105 +285,35 @@
                 },
                 "items": [
                     {
-                        "id": "o-0",
-                        "group": "outputData"
-                    }
-                ]
-            },
-            "id": "initNode2",
-            "data": {
-                "label": "HDFS-CSV下载",
-                "key": "HDFSCSVReadStage",
-                "status": "default",
-                "id": "initNode2",
-                "args": {
-                    "path": "path2"
-                }
-            },
-            "zIndex": 2
-        },
-        {
-            "position": {
-                "x": 490,
-                "y": 350
-            },
-            "size": {
-                "width": 180,
-                "height": 36
-            },
-            "view": "react-shape-view",
-            "shape": "dag-node",
-            "ports": {
-                "groups": {
-                    "inputData": {
-                        "position": "top",
-                        "attrs": {
-                            "circle": {
-                                "r": 4,
-                                "magnet": true,
-                                "stroke": "#C2C8D5",
-                                "strokeWidth": 1,
-                                "fill": "#fff"
-                            }
-                        }
-                    },
-                    "outputData": {
-                        "position": "bottom",
-                        "attrs": {
-                            "circle": {
-                                "r": 4,
-                                "magnet": true,
-                                "stroke": "#C2C8D5",
-                                "strokeWidth": 1,
-                                "fill": "#fff"
-                            }
-                        }
-                    },
-                    "outputModel": {
-                        "position": "bottom",
-                        "attrs": {
-                            "circle": {
-                                "r": 4,
-                                "magnet": true,
-                                "stroke": "#C2C8D5",
-                                "strokeWidth": 1,
-                                "fill": "#fff"
-                            }
-                        }
-                    }
-                },
-                "items": [
-                    {
                         "id": "i-0",
                         "group": "inputData"
                     },
                     {
-                        "id": "i-1",
-                        "group": "inputData"
-                    },
-                    {
                         "id": "o-0",
                         "group": "outputData"
                     }
                 ]
             },
-            "id": "initNode3",
+            "id": "ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b",
             "data": {
                 "args": {
-                    "on": "mem",
-                    "how": "inner"
+                    "conditions": [
+                        "label_value!= -1",
+                        "position_id == 'W101'"
+                    ]
                 },
-                "label": "Join",
-                "key": "MultiJoin",
+                "key": "Where",
+                "label": "过滤",
                 "status": "default",
-                "id": "initNode3"
+                "id": "ff4f36bf-1fe4-4e2e-80f7-7320d1eb710b",
+                "collect": true
             },
             "zIndex": 3
         },
         {
             "position": {
-                "x": 490,
-                "y": 500
+                "x": 240,
+                "y": 260
             },
             "size": {
                 "width": 180,
@@ -360,37 +366,32 @@
                         "group": "inputData"
                     },
                     {
-                        "id": "i-1",
-                        "group": "inputData"
-                    },
-                    {
                         "id": "o-0",
                         "group": "outputData"
-                    },
-                    {
-                        "id": "o-1",
-                        "group": "outputModel"
                     }
                 ]
             },
-            "id": "initNode4",
+            "id": "3c08ea37-03fd-465f-a68a-a212838449c4",
             "data": {
                 "args": {
-                    "label_col": "y",
-                    "num_round": 100,
-                    "train_params": "{\n        \"max_depth\": 6,\n        \"eta\": 0.3,\n        \"objective\": \"binary:logistic\",\n        \"eval_metric\": \"auc\",\n        \"subsample\": 0.8,\n        \"colsample_bytree\": 0.8,\n        \"gamma\": 0.1,\n        \"lambda\": 1,\n        \"alpha\": 0,\n        \"scale_pos_weight\": 1\n    }"
+                    "cols": [
+                        "member_id",
+                        "label_value",
+                        "dt"
+                    ]
                 },
-                "label": "XGB",
-                "key": "XGB",
+                "key": "SelectCols",
+                "label": "特征选择-4",
                 "status": "default",
-                "id": "initNode4"
+                "id": "3c08ea37-03fd-465f-a68a-a212838449c4",
+                "collect": true
             },
             "zIndex": 4
         },
         {
             "position": {
-                "x": 840,
-                "y": 350
+                "x": 240,
+                "y": 320
             },
             "size": {
                 "width": 180,
@@ -439,23 +440,25 @@
                 },
                 "items": [
                     {
+                        "id": "i-0",
+                        "group": "inputData"
+                    },
+                    {
                         "id": "o-0",
                         "group": "outputData"
                     }
                 ]
             },
-            "id": "3c551522-a480-4b5f-a995-3cdd196c0805",
+            "id": "e2101b1a-e1a3-4832-bf8f-475761aeedcc",
             "data": {
-                "key": "HDFSORCReadStage",
-                "label": "HDFS-ORC下载-1",
-                "status": "default",
-                "id": "3c551522-a480-4b5f-a995-3cdd196c0805",
                 "args": {
-                    "path": "path3",
-                    "select_cols": [
-                        "ddd"
-                    ]
-                }
+                    "sql_str": "WITH sample_counts AS (\n    SELECT \n        SUM(CASE WHEN label_value = 1 THEN 1 ELSE 0 END) AS positive_count,\n        SUM(CASE WHEN label_value = 0 THEN 1 ELSE 0 END) AS negative_count,\n        {n_all_samples} // 2 AS target_sample_count\n),\nsample_size AS (\n    SELECT LEAST(positive_count, negative_count, target_sample_count) AS n_samples\n    FROM sample_counts\n)\n\nSELECT *\nFROM (\n    (SELECT * \n        FROM self \n        WHERE label_value = 1\n        ORDER BY RANDOM()\n        LIMIT (SELECT n_samples FROM sample_size))\n    \n    UNION ALL\n    \n    (SELECT * \n        FROM self \n        WHERE label_value = 0\n        ORDER BY RANDOM()\n        LIMIT (SELECT n_samples FROM sample_size))\n)"
+                },
+                "key": "SqlStage",
+                "label": "正负样本均衡",
+                "status": "default",
+                "id": "e2101b1a-e1a3-4832-bf8f-475761aeedcc",
+                "collect": true
             },
             "zIndex": 5
         }

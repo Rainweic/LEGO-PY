@@ -1,10 +1,14 @@
 import json
 import yaml
+import datetime
 
 
-def json2yaml(str_json):
+def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
 
-    infos = json.loads(str_json)['cells']
+    if isinstance(str_json, str):
+        infos = json.loads(str_json)['cells']
+    else:
+        infos = str_json['cells']
 
     nodes = {}
 
@@ -71,17 +75,19 @@ def json2yaml(str_json):
     sorted_nodes = topological_sort(nodes)
     stages = [{nodes[node]['stage']: nodes[node]} for node in sorted_nodes]
     
+    job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
     yaml_content = {
         "global_args": {},
         "pipeline": [{
-            "name": "",
+            "name": job_id,
             "args": {
-                "visualize": True,
-                "save_dags": True,
-                "force_rerun": False
+                "visualize": visualize,
+                "save_dags": save_dags,
+                "force_rerun": force_rerun
             },
             "stages": stages
         }]
     }
     
-    return yaml.dump(yaml_content, allow_unicode=True)
+    return yaml.dump(yaml_content, allow_unicode=True), job_id
