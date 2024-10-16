@@ -95,7 +95,7 @@ class SQLiteCache(Cache):
             raise InvalidKeyTypeException("请确保键是字符串")
 
         if not isinstance(v, (str, bytes)):
-            raise InvalidValueTypeException("请确保值是字符串或字节类型")
+            raise InvalidValueTypeException(f"请确保值是字符串或字节类型: {v}")
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value BLOB)")

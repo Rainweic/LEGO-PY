@@ -35,7 +35,7 @@ def stage_6(f, g, h, i):
 
 async def main():
 
-    async with Pipeline(visualize=True, save_dags=True) as p:
+    async with Pipeline(visualize=True, save_dags=True, force_rerun=False) as p:
         
         stage1 = stage_1().set_pipeline(p)
 

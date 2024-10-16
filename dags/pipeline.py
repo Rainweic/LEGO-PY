@@ -54,6 +54,7 @@ class DAGVerificationException(DAGException):
 
 class StageStatus(enum.Enum):
     DEFAULT = "default"
+    WAITING = "waiting"
     RUNNING = "running"
     FAILED = "failed"
     SUCCESS = "success"
@@ -173,14 +174,17 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             stage_name <str>: pipeline中阶段的名称。
         """
         logging.info(f"[Running stage] {stage_name}")
-        await self.update_stage_status(stage_name, StageStatus.RUNNING)
+        await self._update_stage_status(stage_name, StageStatus.RUNNING)
         try:
             await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
-            await self.update_stage_status(stage_name, StageStatus.SUCCESS)
+            await self._update_stage_status(stage_name, StageStatus.SUCCESS)
+            self.completed_stages.append(stage_name)
         except Exception as e:
             logging.error(f"Stage {stage_name} failed: {str(e)}")
-            await self.update_stage_status(stage_name, StageStatus.FAILED)
-            raise
+            await self._update_stage_status(stage_name, StageStatus.FAILED)
+            raise e
+        finally:
+            await self._save_checkpoint()
 
     def _compute_pipeline_hash(self):
         """
@@ -195,6 +199,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         保存检查点到SQLite数据库。
         """
+        logging.info("save checkpoint")
         checkpoint_data = json.dumps(
             {
                 "completed_stages": self.completed_stages,
@@ -218,6 +223,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         删除检查点。
         """
+        logging.info("删除检查点。")
         await self.delete("pipeline_checkpoint")
 
     def _initialize_stage_statuses(self):
@@ -225,15 +231,15 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         初始化所有stage的状态为DEFAULT
         """
         for stage_name in self.pipeline.nodes:
-            self.write_sync(f"{stage_name}", StageStatus.DEFAULT)
+            self.write_sync(f"{stage_name}", StageStatus.DEFAULT.value)
 
-    async def update_stage_status(self, stage_name: str, status: StageStatus):
+    async def _update_stage_status(self, stage_name: str, status: StageStatus):
         """
         更新stage的状态
         """
         await self.write(f"{stage_name}", status.value)
 
-    async def get_stage_status(self, stage_name: str):
+    async def _get_stage_status(self, stage_name: str):
         """
         获取stage的状态
         """
@@ -287,17 +293,13 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                 for stage, result in zip(stages_to_run, results):
                     if isinstance(result, Exception):
                         logging.error(f"Stage {stage} failed: {str(result)}")
-                    else:
-                        self.completed_stages.append(stage)
             else:
                 for stage in stages_to_run:
                     try:
                         await self.run_stage(stage)
-                        self.completed_stages.append(stage)
-                        await self._save_checkpoint()
                     except Exception as e:
                         logging.error(f"Stage {stage} failed: {str(e)}")
-                        break
+                        # break
 
         await self._delete_checkpoint()
         logging.info("Finish all tasks.")

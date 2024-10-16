@@ -39,6 +39,8 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
     with open(yaml_file, 'r', encoding='utf-8') as file:
         config = yaml.safe_load(file)
+
+    # print(config)
         
     # 解析全局参数
     global_args = config.get('global_args', {})
