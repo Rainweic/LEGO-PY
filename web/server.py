@@ -60,13 +60,14 @@ def run_graph_logic(graph_json_str, force_rerun):
     return response
 
 
-@app.route('/rerun_graph', methods=['POST', 'OPTIONS'])
+@app.route('/run_graph', methods=['POST', 'OPTIONS'])
 def rerun_graph():
     if request.method == "OPTIONS":
         return handle_options_request()
     elif request.method == "POST":
         try:
             graph_json_str = request.json.get('data')
+            # print(graph_json_str)
             if not graph_json_str:
                 return jsonify({"error": "缺少 data 参数"}), 400
             return run_graph_logic(graph_json_str, force_rerun=True)
@@ -86,7 +87,7 @@ def continue_graph():
             return run_graph_logic(graph_json_str, force_rerun=False)
         except Exception as e:
             return handle_error(e)
-        
+
 
 @app.route('/get_stage_status', methods=['POST', 'OPTIONS'])
 def get_stage_status():

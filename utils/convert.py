@@ -14,6 +14,8 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
 
     # 生成node
     for item in infos:
+        if item is None:
+            continue
         if item.get("shape", None) == "dag-node":
 
             # print(item["id"])
@@ -33,6 +35,8 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
 
     # 遍历边
     for item in infos:
+        if item is None:
+            continue
         if item.get("shape", None) == "dag-edge":
 
             source_node_name = item["source"]["cell"]

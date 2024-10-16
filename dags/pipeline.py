@@ -70,12 +70,11 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
               包括拓扑排序、图形可视化、众多图形算法等。
     """
 
-    pipeline = nx.DiGraph()
-
     def __init__(self, parallel: int = None, visualize: bool = False, save_dags: bool = True, force_rerun: bool = False, job_id=None):
         """
         我们使用SQLite数据库作为Pipeline的底层缓存。
         """
+        self.pipeline = nx.DiGraph()
         self.db_path = "pipeline.db"
         SQLiteCache.__init__(self, self.db_path)
         if job_id:
@@ -268,6 +267,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             logging.info("强制重跑所有阶段")
             self.completed_stages = list()
             await self._delete_checkpoint()
+            logging.info(f"所有节点: {self.pipeline.nodes}")
         else:
             checkpoint_data = await self._load_checkpoint()
             if checkpoint_data:
