@@ -111,7 +111,12 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     for i in stage_info["inputs"]:
                         if "." in i:
                             before_instance_name, output_idx = i.split(".")[0], int(i.split(".")[1])
-                            stage_instance.add_input(instance[before_instance_name].output_data_names[output_idx])
+
+                            if before_instance_name in instance:
+                                stage_instance.add_input(instance[before_instance_name].output_data_names[output_idx])
+                            else:
+                                # 若从某个节点开始执行，上一个节点是没有初始化的 直接拼接
+                                stage_instance.add_input(f"{before_instance_name}_output_{output_idx}")
                         else:
                             before_instance_name = i
                             for pre_stage_output_data_name in instance[before_instance_name].output_data_names:
@@ -128,13 +133,13 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                             before_stages = [instance[before_instance_name]]
                         else:
                             raise TypeError("stages.name 必须是字符串或列表")
+                        stage_instance.after(before_stages)
                     except KeyError as e:
-                        raise KeyError(f"找不到命名为{e.args[0]}的stage")
-
-                    stage_instance.after(before_stages)
+                        # 这里可能是因为画布从中间节点开始执行，然后获取不到上游的stage，但不影响运行
+                        logging.warning(f"找不到命名为{e.args[0]}的stage")
 
                 if stage_info.get("collect_result", False):
-                    show = stage_info.get("show_collect_result", False)
+                    show = stage_info.get("show_collect_result", True)
                     stage_instance.collect_result(show=show)
 
                 instance[stage_info['name']] = stage_instance

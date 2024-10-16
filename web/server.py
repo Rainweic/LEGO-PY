@@ -45,12 +45,7 @@ def run_graph_logic(graph_json_str, force_rerun):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
         temp_file.write(graph_yaml)
         temp_file_path = temp_file.name
-    
     print(f"YAML 内容已写入临时文件: {temp_file_path}")
-    # try:
-    #     asyncio.run(load_pipelines_from_yaml(temp_file_path))
-    # except:
-    #     pass
     asyncio.run(load_pipelines_from_yaml(temp_file_path))
     response = jsonify({"message": "running", "data": {"job_id": job_id}})
     origin = request.headers.get('Origin')
@@ -61,7 +56,7 @@ def run_graph_logic(graph_json_str, force_rerun):
 
 
 @app.route('/run_graph', methods=['POST', 'OPTIONS'])
-def rerun_graph():
+def run_graph():
     if request.method == "OPTIONS":
         return handle_options_request()
     elif request.method == "POST":

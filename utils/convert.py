@@ -1,6 +1,7 @@
 import json
 import yaml
 import datetime
+import logging
 
 
 def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
@@ -30,8 +31,6 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
             }
 
             # print(nodes[item["id"]])
-
-    # print(nodes)
 
     # 遍历边
     for item in infos:
@@ -65,14 +64,17 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
         result = []
         
         def dfs(node):
-            if node in visited:
+            if node in visited or node not in nodes.keys():
                 return
             visited.add(node)
+            # print(nodes)
             for dep in nodes[node].get('after', []):
+                # print(f"dep: {dep}")
                 dfs(dep)
             result.append(node)
         
         for node in nodes:
+            # print(node)
             dfs(node)
         
         return result
@@ -80,6 +82,7 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
     stages = [{nodes[node]['stage']: nodes[node]} for node in sorted_nodes]
     
     job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    logging.info(f"job_id: {job_id}")
 
     yaml_content = {
         "global_args": {},
