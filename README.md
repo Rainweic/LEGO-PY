@@ -8,17 +8,10 @@
 - 流程图输出
 - 自定义各类功能组件
 - 读取yaml配置文件自动生成计算图 [参考demo1.yaml、demo2.yaml]
-- 支持组件：
-    - hdfs数据下载
-    - join
-    - label_enconder
-    - pearson 
-    - spearman
-    - where
-    - xgboost特征筛选
+- 功能排期：http://wiki.lkcoffee.com/x/c1iGE
 
 
-### 运行demo
+### 准备工作
 
 clone项目
 ```bash
@@ -29,6 +22,14 @@ cd py-lego
 ```bash
 pip install -r ./requirements.txt
 ```
+
+### 开启后端【需配合前端使用】
+
+```bash
+sh deploy_local.sh
+```
+
+### 本地运行demo【用于开发测试】
 
 方式一：通过代码构建的计算图直接运行
 ```bash
@@ -41,7 +42,6 @@ python demo2.py
 python parser_yaml.py -p ./demo1.yaml
 python parser_yaml.py -p ./demo2.yaml
 ```
-
 
 ### 教程相关
 
@@ -70,6 +70,5 @@ python parser_yaml.py -p ./demo2.yaml
 
 ### 待实现
 
-- 前端拖拉拽UI，生成配置文件
 - IO加速
 - 直接从hdfs用polars进行读取数据
