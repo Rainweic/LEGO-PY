@@ -21,11 +21,7 @@ for module in modules:
 __all__ = [name for name in globals() if not name.startswith('_')]
 
 
-logging.basicConfig(
-    format="[STAGES]: %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-
-def create_stage(stage_type: str, name: str, args: dict):
+def create_stage(stage_type: str, name: str, args: dict, job_id: str = None):
     """
     根据阶段类型、名称和参数创建相应的阶段实例。
 
@@ -48,4 +44,49 @@ def create_stage(stage_type: str, name: str, args: dict):
     if name:
         stage_obj.name = name
 
+    # 为这个 stage 实例设置日志记录器
+    logger = setup_logger(f"{stage_type}_{name}", job_id=job_id)
+    stage_obj.logger = logger
+
     return stage_obj
+
+
+def setup_logger(name, job_id=None):
+    # 创建日志目录（如果不存在）
+    log_dir = os.path.join(os.path.dirname(__file__), '../cache/logs')
+    if job_id:
+        log_dir = os.path.join(log_dir, job_id)
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 创建日志文件路径
+    log_file = os.path.join(log_dir, f"{name}.log")
+
+    # 创建日志记录器
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+
+    # 创建文件处理器
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
+
+    # 创建控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    # 创建格式化器
+    formatter = logging.Formatter("[STAGES]: %(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                                  datefmt="%Y-%m-%d %H:%M:%S")
+
+    # 将格式化器添加到处理器
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # 将处理器添加到日志记录器
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+# 在每个stage文件中使用这个函数来设置日志记录器
+# 例如，在 my_stage.py 中：
+# logger = setup_logger(__name__)

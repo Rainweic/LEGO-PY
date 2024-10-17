@@ -105,7 +105,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                         stage_instance.name = name
                 else:
                     try:
-                        stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'])
+                        stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'], job_id=job_id)
                     except Exception as e:
                         error_msg = f"输入参数错误：{stage_info['args']}, 无法创建实例. Stage信息：{stage}"
                         logging.error(error_msg)

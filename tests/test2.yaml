@@ -16,7 +16,8 @@ pipeline:
   - Where:
       after:
       - 6ee71b9e-a1a3-4149-8d22-5e1e475850a1
-      args: {}
+      args: 
+        conditions: ["ab_test_group_id == 1722"]
       collect_result: true
       inputs:
       - 6ee71b9e-a1a3-4149-8d22-5e1e475850a1.0

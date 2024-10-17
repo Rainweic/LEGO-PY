@@ -25,7 +25,7 @@ class ORCReadStage(CSVReadStage):
             # 使用 pyarrow 读取 ORC 文件
             orc_file = orc.ORCFile(self.path)
         except BaseException as e:
-            logging.error(f"Reading file {self.path} error: {e}")
+            self.logger.error(f"Reading file {self.path} error: {e}")
             raise e
         
         df_list = []
@@ -36,7 +36,7 @@ class ORCReadStage(CSVReadStage):
             # 将 pyarrow Table 转换为 polars DataFrame 并追加到 df
             df_list.append(pl.from_arrow(batch).lazy())
 
-        logging.info("Starting concat lazy dataframe")
+        self.logger.info("Starting concat lazy dataframe")
         df = pl.concat(df_list, how="vertical_relaxed")
 
         return df

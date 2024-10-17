@@ -1,4 +1,3 @@
-import logging
 import polars as pl
 import xgboost as xgb
 
@@ -42,12 +41,12 @@ class XGB(BaseStage):
             self.train_cols = [col for col in train_df.columns if col != self.label_col]
 
         if self.label_col in self.train_cols:
-            logging.warn(f"检测到label在训练特征内，自动剔除")
+            self.logger.warn(f"检测到label在训练特征内，自动剔除")
             self.train_cols.remove(self.label_col)
 
-        logging.info(f"训练数据集特征: {self.train_cols}")
-        logging.info(f"训练数据集label: {self.label_col}")
-        logging.info(f"训练参数: {self.train_params}")
+        self.logger.info(f"训练数据集特征: {self.train_cols}")
+        self.logger.info(f"训练数据集label: {self.label_col}")
+        self.logger.info(f"训练参数: {self.train_params}")
 
         X = train_df.select(self.train_cols)
         y = train_df.select(self.label_col)
@@ -67,7 +66,7 @@ class XGB(BaseStage):
             deval = xgb.DMatrix(X_eval, label=y_eval, feature_names=self.train_cols)
             eval_result = {}
             model.eval(deval, 'eval', eval_result)
-            logging.info(f"评估结果: {eval_result}")
+            self.logger.info(f"评估结果: {eval_result}")
 
         return model
     
@@ -98,9 +97,9 @@ class XGBImportance(XGB):
 
         out_features = []
 
-        logging.info(f"特征重要性排名前{self.topK}：")
+        self.logger.info(f"特征重要性排名前{self.topK}：")
         for feature, score in importance[:self.topK]:
-            logging.info(f"{feature}: {score}")
+            self.logger.info(f"{feature}: {score}")
             out_features.append(feature)
 
         return train_df.lazy().select(out_features), out_features

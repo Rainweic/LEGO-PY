@@ -1,5 +1,4 @@
 import uuid
-import logging
 import polars as pl
 from dags.stage import CustomStage
 
@@ -52,7 +51,7 @@ class CastStage(CustomStage):
                 (CASE {case_when_statements} ELSE {self.col_name} END) AS {tmp_out_col_name}
             FROM self
             """.strip()
-            logging.info(sql_query)
+            self.logger.info(sql_query)
             df = df.lazy().sql(sql_query).drop(pl.col(self.col_name)).rename({tmp_out_col_name: self.col_name})
 
         else:
@@ -62,7 +61,7 @@ class CastStage(CustomStage):
                 (CASE {case_when_statements} ELSE {self.col_name} END) AS {self.out_col_name}
             FROM self
             """.strip()
-            logging.info(sql_query)
+            self.logger.info(sql_query)
             df = df.lazy().sql(sql_query)
 
         return df
