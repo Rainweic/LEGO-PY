@@ -66,7 +66,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
             # 解析各个阶段
             for stage in pipeline_config.get('stages', []):
 
-                logging.info(f"Auto create stage: {stage}")
+                logging.info(f"Auto create stage...: {stage}")
                 # print(pipeline_config["stages"])
 
                 stage_type = list(stage.keys())[0]
@@ -143,6 +143,8 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     stage_instance.collect_result(show=show)
 
                 instance[stage_info['name']] = stage_instance
+
+                logging.info("Finish create stage!")
 
             out_p.append(p)
 
