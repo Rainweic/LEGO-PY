@@ -34,6 +34,7 @@ from multiprocessing.pool import ThreadPool
 from .serialization import CloudPickleSerializer
 from .cache import SQLiteCache
 from .stage import StageExecutor, BaseStage
+from utils.logger import setup_logger
 
 
 class StageException(Exception):
@@ -81,6 +82,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             self.job_id = job_id
         else:
             self.job_id = self.generate_job_id()
+        self.logger = setup_logger("pipeline", "PIPELINE", job_id=self.job_id)
         self.stage_counter = 0
         self.stages_to_add = list()
         self.completed_stages = list()
@@ -121,7 +123,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
              生成器,其中每个元素是同一组中的节点列表。
         """
 
-        logging.info("计算pipeline DAG的分组拓扑排序")
+        self.logger.info("计算pipeline DAG的分组拓扑排序")
         indegree_map = {v: d for v, d in self.pipeline.in_degree() if d > 0}
         zero_indegree = [v for v, d in self.pipeline.in_degree() if d == 0]
         while zero_indegree:
@@ -172,14 +174,14 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         参数:
             stage_name <str>: pipeline中阶段的名称。
         """
-        logging.info(f"[Running stage] {stage_name}")
+        self.logger.info(f"[Running stage] {stage_name}")
         await self._update_stage_status(stage_name, StageStatus.RUNNING)
         try:
             await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
             await self._update_stage_status(stage_name, StageStatus.SUCCESS)
             self.completed_stages.append(stage_name)
         except Exception as e:
-            logging.error(f"Stage {stage_name} failed: {str(e)}")
+            self.logger.error(f"Stage {stage_name} failed: {str(e)}")
             await self._update_stage_status(stage_name, StageStatus.FAILED)
             raise e
         finally:
@@ -198,7 +200,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         保存检查点到SQLite数据库。
         """
-        logging.info("save checkpoint")
+        self.logger.info("save checkpoint")
         checkpoint_data = json.dumps(
             {
                 "completed_stages": self.completed_stages,
@@ -222,7 +224,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         删除检查点。
         """
-        logging.info("删除检查点。")
+        self.logger.info("删除检查点。")
         await self.delete("pipeline_checkpoint")
 
     def _initialize_stage_statuses(self):
@@ -260,46 +262,46 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if visualize:
             await self._visualize(save_dags)
 
-        logging.info("序列化pipeline并写入SQLite")
+        self.logger.info("序列化pipeline并写入SQLite")
         await self.write("pipeline", self.serialize(self.pipeline))
 
         if force_rerun:
-            logging.info("强制重跑所有阶段")
+            self.logger.info("强制重跑所有阶段")
             self.completed_stages = list()
             await self._delete_checkpoint()
-            logging.info(f"所有节点: {self.pipeline.nodes}")
+            self.logger.info(f"所有节点: {self.pipeline.nodes}")
         else:
             checkpoint_data = await self._load_checkpoint()
             if checkpoint_data:
                 previous_pipeline_hash = checkpoint_data["pipeline_hash"]
-                logging.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
+                self.logger.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
             else:
                 previous_pipeline_hash = None
 
             current_pipeline_hash = self._compute_pipeline_hash()
 
             if previous_pipeline_hash and previous_pipeline_hash != current_pipeline_hash:
-                logging.info("Pipeline 发生改动，重头运行")
+                self.logger.info("Pipeline 发生改动，重头运行")
                 self.completed_stages = list()
 
         sorted_grouped_stages = self.topological_sort_grouped()
         for group in sorted_grouped_stages:
             stages_to_run = [stage for stage in group if stage not in self.completed_stages]
-            logging.info("处理组: %s", stages_to_run)
+            self.logger.info("处理组: %s", stages_to_run)
 
             if parallel:
                 tasks = [self.run_stage(stage) for stage in stages_to_run]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for stage, result in zip(stages_to_run, results):
                     if isinstance(result, Exception):
-                        logging.error(f"Stage {stage} failed: {str(result)}")
+                        self.logger.error(f"Stage {stage} failed: {str(result)}")
             else:
                 for stage in stages_to_run:
                     await self.run_stage(stage)
                         # break
 
         await self._delete_checkpoint()
-        logging.info("Finish all tasks.")
+        self.logger.info("Finish all tasks.")
 
     async def get_graph_last_output(self):
         return await self.read(self.completed_stages[-1])
@@ -310,7 +312,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             async with aiofiles.open(file_path, "rb") as f:
                 return pickle.loads(await f.read())
         else:
-            logging.warning(f"数据文件不存在: {file_path}")
+            self.logger.warning(f"数据文件不存在: {file_path}")
             return None
 
     async def _visualize(self, save_dags: bool = False):
