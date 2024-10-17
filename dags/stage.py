@@ -300,9 +300,11 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 except Exception as e:
                     logging.error(f"Stage {self.__class__.__name__} 读取输入数据 {name} 时出错: {e}")
                     raise RuntimeError(e)
+            # 运行
             outs = self.forward(*input_datas, *args, **kwargs)
         else:
             logging.warning(f"stage: {self.name} 无任何输入")
+            # 运行
             outs = self.forward(*args, **kwargs)
 
         if self.output_data_names:

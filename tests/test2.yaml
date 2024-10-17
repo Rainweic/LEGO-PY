@@ -1,0 +1,25 @@
+global_args: {}
+pipeline:
+- args:
+    force_rerun: true
+    save_dags: true
+    visualize: false
+  name: '20241017_103854'
+  stages:
+  - CSVReadStage:
+      args:
+        path: /Users/cu/Downloads/test.csv
+      collect_result: true
+      label: 本地CSV读取-1
+      name: 6ee71b9e-a1a3-4149-8d22-5e1e475850a1
+      stage: CSVReadStage
+  - Where:
+      after:
+      - 6ee71b9e-a1a3-4149-8d22-5e1e475850a1
+      args: {}
+      collect_result: true
+      inputs:
+      - 6ee71b9e-a1a3-4149-8d22-5e1e475850a1.0
+      label: Where-1
+      name: 0f15f13c-5b58-4ccc-9631-c1215aa4bcc7
+      stage: Where

@@ -295,10 +295,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                         logging.error(f"Stage {stage} failed: {str(result)}")
             else:
                 for stage in stages_to_run:
-                    try:
-                        await self.run_stage(stage)
-                    except Exception as e:
-                        logging.error(f"Stage {stage} failed: {str(e)}")
+                    await self.run_stage(stage)
                         # break
 
         await self._delete_checkpoint()

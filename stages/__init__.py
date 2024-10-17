@@ -44,6 +44,7 @@ def create_stage(stage_type: str, name: str, args: dict):
 
     # 创建阶段实例并返回
     stage_obj = stage_class(**args)
+
     if name:
         stage_obj.name = name
 

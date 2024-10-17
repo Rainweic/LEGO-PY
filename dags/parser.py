@@ -3,6 +3,8 @@ import asyncio
 import os
 import importlib.util
 import logging
+import sys
+import traceback
 from stages import create_stage
 from dags.pipeline import Pipeline
 
@@ -102,7 +104,13 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     if name:
                         stage_instance.name = name
                 else:
-                    stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'])
+                    try:
+                        stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'])
+                    except Exception as e:
+                        error_msg = f"输入参数错误：{stage_info['args']}, 无法创建实例. Stage信息：{stage}"
+                        logging.error(error_msg)
+                        logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        raise TypeError(error_msg)
                 
                 # stage 设置
                 stage_instance.set_pipeline(p)
