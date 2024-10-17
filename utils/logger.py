@@ -7,11 +7,10 @@ def setup_logger(name, prefix, job_id=None):
     logger.setLevel(logging.INFO)
 
     # 使用固定的日志目录
-    base_log_dir = '/tmp/lego/log'  # 或者其他您指定的固定路径
     if job_id:
-        log_dir = os.path.join(base_log_dir, job_id)
+        log_dir = os.path.join(os.path.dirname(__file__), "../cache", job_id, "logs")
     else:
-        log_dir = base_log_dir
+        log_dir = os.path.join(os.path.dirname(__file__), "../cache/logs")
 
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, f'{name}.log')

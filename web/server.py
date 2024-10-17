@@ -5,6 +5,8 @@ from dags.pipeline import StageStatus
 from utils.convert import json2yaml
 from dags.parser import load_pipelines_from_yaml
 
+import os
+import logging
 import asyncio
 import tempfile
 import traceback
@@ -119,6 +121,34 @@ def get_stage_status():
             return response
         except Exception as e:
             return handle_error(e)
+
+
+@app.route('/get_cpm_log')
+def get_cpm_log():
+
+    job_id = request.args.get("job_id")
+    stage_name = request.args.get("node_id")
+    logging.info(f"job id: {job_id}, stage name: {stage_name}")
+
+    try:
+        log_path = os.path.join(os.path.dirname(__file__), "../cache", job_id, "logs", f"{stage_name}.log")
+        if not os.path.exists(log_path):
+            response = jsonify({"log": f"日志文件不存在: {log_path}"})
+        
+        else:
+            with open(log_path, "r") as f:
+                log_content = f.read()
+
+            logging.info(f"日志内容: {log_content[:100]}")
+        
+            response = jsonify({"log": log_content})
+        origin = request.headers.get('Origin')
+        if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+    except Exception as e:
+        return handle_error(e)
 
 
 if __name__ == "__main__":
