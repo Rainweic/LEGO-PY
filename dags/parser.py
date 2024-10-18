@@ -6,7 +6,7 @@ import logging
 import sys
 import traceback
 from stages import create_stage
-from dags.pipeline import Pipeline
+from dags.pipeline import Pipeline, StageStatus
 
 
 def import_module_from_script(script_path: str, module_name: str):
@@ -98,7 +98,14 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     module = import_module_from_script(script_path=script_path, module_name=module_name)
                     stage_args = stage_info.get("args", {})
                     logging.info(f"[{stage_type}] {module_name}'s args: {stage_args}")
-                    stage_instance = module(**stage_args)
+                    try:
+                        stage_instance = module(**stage_args)
+                    except Exception as e:
+                        error_msg = f"无法创建实例. Stage信息：{stage}"
+                        logging.error(error_msg)
+                        logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        await p._update_stage_status(stage_info['name'], StageStatus.FAILED)
+                        raise TypeError(error_msg)
                     # 设置name
                     name = stage_info['name']
                     if name:
@@ -110,6 +117,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                         error_msg = f"输入参数错误：{stage_info['args']}, 无法创建实例. Stage信息：{stage}"
                         logging.error(error_msg)
                         logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        await p._update_stage_status(stage_info['name'], StageStatus.FAILED)
                         raise TypeError(error_msg)
                 
                 # stage 设置
