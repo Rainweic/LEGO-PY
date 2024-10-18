@@ -44,9 +44,11 @@ def handle_error(e):
 # 新增一个函数来处理图表的重新运行逻辑
 def run_graph_logic(graph_json_str, force_rerun):
     graph_yaml, job_id = json2yaml(graph_json_str, force_rerun=force_rerun)
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
+    config_dir = os.path.join('cache', job_id, 'config')
+    os.makedirs(config_dir, exist_ok=True)
+    temp_file_path = os.path.join(config_dir, 'graph_config.yaml')
+    with open(temp_file_path, 'w') as temp_file:
         temp_file.write(graph_yaml)
-        temp_file_path = temp_file.name
     print(f"YAML 内容已写入临时文件: {temp_file_path}")
     asyncio.run(load_pipelines_from_yaml(temp_file_path))
     response = jsonify({"message": "running", "data": {"job_id": job_id}})
