@@ -70,5 +70,10 @@ python parser_yaml.py -p ./demo2.yaml
 
 ### 待实现
 
+P0
+- status也需要用job_id来区分
+- 运行全部画布好像少了一个节点？？？
+
+P3
 - IO加速
 - 直接从hdfs用polars进行读取数据

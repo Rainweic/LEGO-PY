@@ -293,6 +293,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
         if self.input_data_names:
             input_datas = []
+            self.logger.warning(f"stage: {self.name} 开始读取输入: {self.input_data_names}")
             for name in tqdm(self.input_data_names, desc="Reading input data"):
                 try:
                     data = await self.read(name)
@@ -302,10 +303,12 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 except Exception as e:
                     self.logger.error(f"Stage {self.__class__.__name__} 读取输入数据 {name} 时出错: {e}")
                     raise RuntimeError(e)
+            self.logger.warning(f"stage: {self.name} 开始运行")
             # 运行
             outs = self.forward(*input_datas, *args, **kwargs)
         else:
             self.logger.warning(f"stage: {self.name} 无任何输入")
+            self.logger.warning(f"stage: {self.name} 开始运行")
             # 运行
             outs = self.forward(*args, **kwargs)
 
