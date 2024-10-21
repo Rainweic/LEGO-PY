@@ -141,7 +141,7 @@ def get_stage_status():
 
 
 @app.route('/get_cpm_log')
-def get_cpm_log():
+async def get_cpm_log():
 
     job_id = request.args.get("job_id")
     stage_name = request.args.get("node_id")
@@ -150,7 +150,9 @@ def get_cpm_log():
     try:
         log_path = os.path.join(os.path.dirname(__file__), "../cache", job_id, "logs", f"{stage_name}.log")
         if not os.path.exists(log_path):
-            response = jsonify({"log": f"日志文件不存在: {log_path}"})
+            msg = f"日志文件不存在: {log_path}"
+            logging.info(msg)
+            response = jsonify({"log": msg})
         
         else:
             with open(log_path, "r") as f:
