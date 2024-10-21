@@ -145,15 +145,29 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     async def read(self, k: str) -> object:
         """从sqlite获取文件位置并读取"""
         file_path = await SQLiteCache.read(self, k)
+        self.logger.info(f"获取文件位置, 开始读取: {file_path}")
         if file_path and os.path.exists(file_path):
-            async with aiofiles.open(file_path, "rb") as f:
-                data = await f.read()
-                data_type = 'pandas' if file_path.endswith('.pandas') else 'polars' if file_path.endswith('.polars') else 'pickle'
-                try:
-                    return deserialize(data, data_type)
-                except Exception as e:
-                    self.logger.error(f"反序列化失败: {e}")
-                    raise e
+            # async with aiofiles.open(file_path, "rb") as f:
+            #     data = await f.read()
+            #     data_type = 'pandas' if file_path.endswith('.pandas') else 'polars' if file_path.endswith('.polars') else 'pickle'
+            #     try:
+            #         return deserialize(data, data_type)
+            #     except Exception as e:
+            #         self.logger.error(f"反序列化失败: {e}")
+            #         raise e
+
+            try:
+                async with aiofiles.open(file_path, "rb") as f:
+                    data = await f.read()
+                    if file_path.endswith('.parquet'):
+                        data = pl.scan_parquet(data)
+                    elif file_path.endswith('.pickle'):
+                        data = pickle.loads(data)
+                self.logger.info("读取成功")
+                return data
+            except Exception as e:
+                self.logger.error(f"读取数据失败: {e}")
+                raise e
         else:
             self.logger.warning(f"数据文件不存在: {file_path}")
             raise FileNotFoundError
@@ -161,19 +175,35 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
     async def write(self, k: str, v: object) -> None:
         """写入输出数据到本地磁盘，并记录文件位置到sqlite"""
         file_path = self._get_data_path(k)
-        data_type = 'pandas' if isinstance(v, pd.DataFrame) else 'polars' if isinstance(v, (pl.DataFrame, pl.LazyFrame)) else 'pickle'
+        data_type = 'parquet' if isinstance(v, (pl.DataFrame, pl.LazyFrame)) else 'pickle'
         file_path += f".{data_type}"
         self.logger.info(f"数据{k}开始写入: {file_path}")
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        async with aiofiles.open(file_path, "wb") as f:
-            try:
-                data = serialize(v)
-                await f.write(data)
-            except Exception as e:
-                self.logger.error(f"序列化失败: {e}")
-                raise e
-        await SQLiteCache.write(self, k, file_path)
-        self.logger.info(f"数据{k}已写入文件: {file_path}")
+        # async with aiofiles.open(file_path, "wb") as f:
+        #     try:
+        #         data = serialize(v)
+        #         await f.write(data)
+        #     except Exception as e:
+        #         self.logger.error(f"序列化失败: {e}")
+        #         raise e
+
+        try:
+            if isinstance(v, pd.DataFrame):
+                raise TypeError("请使用polars替代pandas实现")
+            elif isinstance(v, pl.DataFrame):
+                v.write_parquet(file_path)
+            elif isinstance(v, pl.LazyFrame):
+                v.sink_parquet(file_path)
+            else:
+                async with aiofiles.open(file_path, "wb") as f:
+                    pickle.dump(v, f)
+            
+            await SQLiteCache.write(self, k, file_path)
+            self.logger.info(f"数据{k}已写入文件: {file_path}")
+
+        except Exception as e:
+            self.logger.error(f"写入文件失败: {e}")
+            raise e
 
     @property
     def name(self) -> str:
