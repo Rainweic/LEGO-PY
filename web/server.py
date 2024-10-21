@@ -10,6 +10,7 @@ import logging
 import asyncio
 import tempfile
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 
 app = Flask(__name__)
@@ -40,17 +41,29 @@ def handle_error(e):
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response, 500
 
-
 # 新增一个函数来处理图表的重新运行逻辑
-def run_graph_logic(graph_json_str, force_rerun):
+async def run_graph_logic(graph_json_str, force_rerun):
     graph_yaml, job_id = json2yaml(graph_json_str, force_rerun=force_rerun)
     config_dir = os.path.join('cache', job_id, 'config')
     os.makedirs(config_dir, exist_ok=True)
     temp_file_path = os.path.join(config_dir, 'graph_config.yaml')
     with open(temp_file_path, 'w') as temp_file:
         temp_file.write(graph_yaml)
-    print(f"YAML 内容已写入临时文件: {temp_file_path}")
-    asyncio.run(load_pipelines_from_yaml(temp_file_path))
+    logging.info(f"YAML 内容已写入临时文件: {temp_file_path}")
+    
+    # 创建一个新的事件循环来运行 load_pipelines_from_yaml
+    def run_in_new_loop(temp_file_path):
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            new_loop.run_until_complete(load_pipelines_from_yaml(temp_file_path))
+        finally:
+            new_loop.close()
+
+    # 使用 ThreadPoolExecutor 在新线程中运行 load_pipelines_from_yaml
+    executor = ThreadPoolExecutor()
+    executor.submit(run_in_new_loop, temp_file_path)
+
     response = jsonify({"message": "running", "data": {"job_id": job_id}})
     origin = request.headers.get('Origin')
     if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
@@ -60,22 +73,21 @@ def run_graph_logic(graph_json_str, force_rerun):
 
 
 @app.route('/run_graph', methods=['POST', 'OPTIONS'])
-def run_graph():
+async def run_graph():
     if request.method == "OPTIONS":
         return handle_options_request()
     elif request.method == "POST":
         try:
             graph_json_str = request.json.get('data')
-            # print(graph_json_str)
             if not graph_json_str:
                 return jsonify({"error": "缺少 data 参数"}), 400
-            return run_graph_logic(graph_json_str, force_rerun=True)
+            return await run_graph_logic(graph_json_str, force_rerun=True)
         except Exception as e:
             return handle_error(e)
         
 
 @app.route('/continue_graph', methods=['POST', 'OPTIONS'])
-def continue_graph():
+async def continue_graph():
     if request.method == "OPTIONS":
         return handle_options_request()
     elif request.method == "POST":
@@ -83,7 +95,7 @@ def continue_graph():
             graph_json_str = request.json.get('data')
             if not graph_json_str:
                 return jsonify({"error": "缺少 data 参数"}), 400
-            return run_graph_logic(graph_json_str, force_rerun=False)
+            return await run_graph_logic(graph_json_str, force_rerun=False)
         except Exception as e:
             return handle_error(e)
 
@@ -97,6 +109,7 @@ def get_stage_status():
         try:
 
             stage_names = request.json.get('stage_names')
+            job_id = request.json.get("job_id")
 
             # 创建一个SQLiteCache实例
             cache = SQLiteCache()
@@ -104,15 +117,17 @@ def get_stage_status():
             ret = {}
             for name in stage_names:
                 # 从SQLite数据库中读取stage状态
-                status = asyncio.run(cache.read(f"{name}"))
+                status = asyncio.run(cache.read(f"{job_id}_{name}"))
             
                 if status is None:
-                    status = 'default'
+                    status = 'running'
             
                 # 将状态转换为StageStatus枚举
                 stage_status = StageStatus(status)
 
                 ret[name] = stage_status.value
+
+            logging.info(f"Job id: {job_id}, status: {ret}")
                 
             # 返回状态
             response = jsonify(ret)

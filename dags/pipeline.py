@@ -238,7 +238,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         更新stage的状态
         """
-        await self.write(f"{stage_name}", status.value)
+        await self.write(f"{self.job_id}_{stage_name}", status.value)
 
     async def _get_stage_status(self, stage_name: str):
         """
