@@ -143,6 +143,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         return os.path.join(self.get_run_folder(), f"{name}_{hash_name}")
 
     async def read(self, k: str) -> object:
+        """从sqlite获取文件位置并读取"""
         file_path = await SQLiteCache.read(self, k)
         if file_path and os.path.exists(file_path):
             async with aiofiles.open(file_path, "rb") as f:
@@ -158,6 +159,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             raise FileNotFoundError
 
     async def write(self, k: str, v: object) -> None:
+        """写入输出数据到本地磁盘，并记录文件位置到sqlite"""
         file_path = self._get_data_path(k)
         data_type = 'pandas' if isinstance(v, pd.DataFrame) else 'polars' if isinstance(v, (pl.DataFrame, pl.LazyFrame)) else 'pickle'
         file_path += f".{data_type}"
@@ -316,14 +318,16 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
             if len(self.output_data_names) == 1:
                 o_n = self.output_data_names[0]
-                if self._collect_result and isinstance(outs, pl.LazyFrame):
+                # if self._collect_result and isinstance(outs, pl.LazyFrame):
+                if isinstance(outs, pl.LazyFrame):
                     outs = outs.collect()
                     if self._show_collect:
                         self.logger.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
                 await self.write(o_n, outs)
             else:
                 for o_n, o in zip(self.output_data_names, outs):
-                    if self._collect_result and isinstance(o, pl.LazyFrame):
+                    # if self._collect_result and isinstance(o, pl.LazyFrame):
+                    if isinstance(outs, pl.LazyFrame):
                         o = o.collect()
                         if self._show_collect:
                             self.logger.info(f"[Show Collect Result of Output {o_n}]\n{o}")
