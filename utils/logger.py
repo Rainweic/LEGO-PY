@@ -24,7 +24,7 @@ def setup_logger(name, prefix, job_id=None):
     console_handler.setLevel(logging.INFO)
 
     # 格式化器
-    formatter = logging.Formatter(f'[{prefix}]: %(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    formatter = logging.Formatter(f'[{prefix}]: %(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
                                   datefmt='%Y-%m-%d %H:%M:%S')
 
     file_handler.setFormatter(formatter)

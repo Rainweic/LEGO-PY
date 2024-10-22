@@ -22,8 +22,9 @@ class Split(CustomStage):
         split_sizes = [int(ratio * total_rows) for ratio in ratios]
         split_sizes[-1] = total_rows - sum(split_sizes[:-1])  # 确保总和等于总行数
 
-        print(f"实际划分样本数量 train:val:test {split_sizes}")
-        # self.logger.info(f"实际划分样本数量 train:val:test {split_sizes}")
+        # print(f"实际划分样本数量 train:val:test {split_sizes}")
+        self.logger.info(f"是否随机划分数据集: {self.random}")
+        self.logger.info(f"实际划分样本数量 train:val:test {split_sizes}")
         
         if self.random:
             # 生成随机索引
