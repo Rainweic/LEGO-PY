@@ -208,9 +208,8 @@ async def get_output():
                 # 添加行号列
                 data = data.with_row_count("行号", offset=start_row + 1)
                 
-                cols = [{"title": col, "dataIndex": col, "key": col} for col in data.columns]
+                cols = [{"title": col, "dataIndex": col, "key": col, "width": 75 if col == "行号" else 150} for col in data.columns]
                 data_dict = data.to_dicts()
-                
                 response = jsonify({
                     "tableData": data_dict, 
                     "tableCols": cols, 
