@@ -166,27 +166,6 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         if not nx.is_directed_acyclic_graph(self.pipeline):
             raise DAGVerificationException("Pipeline不再是一个DAG!")
 
-    async def run_stage(self, stage_name: str) -> None:
-        """
-        运行pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
-        并使用所需的'run'方法执行。
-
-        参数:
-            stage_name <str>: pipeline中阶段的名称。
-        """
-        self.logger.info(f"[Running stage] {stage_name}")
-        await self._update_stage_status(stage_name, StageStatus.RUNNING)
-        try:
-            await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
-            await self._update_stage_status(stage_name, StageStatus.SUCCESS)
-            self.completed_stages.append(stage_name)
-        except Exception as e:
-            self.logger.error(f"Stage {stage_name} failed: {str(e)}")
-            await self._update_stage_status(stage_name, StageStatus.FAILED)
-            raise e
-        finally:
-            await self._save_checkpoint()
-
     def _compute_pipeline_hash(self):
         """
         计算当前pipeline的hash值，用于检查pipeline是否发生改动
@@ -246,6 +225,33 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         """
         status = await self.read(f"stage_status_{self.job_id}_{stage_name}")
         return StageStatus(status) if status else StageStatus.DEFAULT
+    
+    async def _write_output_names(self, stage_name):
+        output_names = self.pipeline.nodes[stage_name]['stage_wrapper'].get_output_names()
+        self.logger.info(f"Save output names to sqlite: {output_names}")
+        await self.write(f"{self.job_id}_{stage_name}_output_names", pickle.dumps(output_names))
+
+    async def run_stage(self, stage_name: str) -> None:
+        """
+        运行pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
+        并使用所需的'run'方法执行。
+
+        参数:
+            stage_name <str>: pipeline中阶段的名称。
+        """
+        self.logger.info(f"[Running stage] {stage_name}")
+        await self._update_stage_status(stage_name, StageStatus.RUNNING)
+        try:
+            await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
+            await self._update_stage_status(stage_name, StageStatus.SUCCESS)
+            await self._write_output_names(stage_name)
+            self.completed_stages.append(stage_name)
+        except Exception as e:
+            self.logger.error(f"Stage {stage_name} failed: {str(e)}")
+            await self._update_stage_status(stage_name, StageStatus.FAILED)
+            raise e
+        finally:
+            await self._save_checkpoint()
 
     # 主要函数入口
     async def start(

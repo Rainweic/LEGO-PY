@@ -6,10 +6,13 @@ from utils.convert import json2yaml
 from dags.parser import load_pipelines_from_yaml
 
 import os
+import math
+import uuid
+import pickle
 import logging
 import asyncio
-import tempfile
 import traceback
+import polars as pl
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -166,6 +169,65 @@ async def get_cpm_log():
             response.headers.add("Access-Control-Allow-Origin", origin)
         response.headers.add("Access-Control-Allow-Credentials", "true")
         return response
+    except Exception as e:
+        return handle_error(e)
+    
+
+@app.route("/output")
+async def get_output():
+    n_rows_one_page = 100
+    job_id = request.args.get("job_id")
+    stage_name = request.args.get("node_id")
+    page_idx = int(request.args.get("page_idx"))
+    output_idx = int(request.args.get("output_idx"))
+    logging.info(f"job id: {job_id}, stage name: {stage_name}, page idx: {page_idx}")
+    print(f"job id: {job_id}, stage name: {stage_name}, page idx: {page_idx}")
+
+    try:
+        # 创建一个SQLiteCache实例
+        cache = SQLiteCache()
+        # 获取组件输出命名
+        output_names = await cache.read(f"{job_id}_{stage_name}_output_names")
+        if output_names:
+            output_name = pickle.loads(output_names)[output_idx]
+            logging.info(f"reading output: {output_name}")
+            data_path = await cache.read(output_name)
+            if data_path.endswith('.parquet'):
+                # 使用 scan_parquet 来创建懒惰查询
+                lazy_df = pl.scan_parquet(data_path)
+                
+                # 计算总行数
+                total = lazy_df.select(pl.count()).collect().item()
+                
+                # 计算起始行和结束行
+                start_row = page_idx * n_rows_one_page
+                
+                # 使用 slice 来获取指定范围的数据
+                data = lazy_df.slice(start_row, n_rows_one_page).collect()
+                
+                # 添加行号列
+                data = data.with_row_count("行号", offset=start_row + 1)
+                
+                cols = [{"title": col, "dataIndex": col, "key": col} for col in data.columns]
+                data_dict = data.to_dicts()
+                
+                response = jsonify({
+                    "tableData": data_dict, 
+                    "tableCols": cols, 
+                    "totalRows": total, 
+                    "pageSize": n_rows_one_page, 
+                    "pageCount": math.ceil(total / n_rows_one_page)
+                })
+        else:
+            response = jsonify({"data": "数据暂未生成"})
+            logging.warning("读取数据输出失败")
+        
+        origin = request.headers.get('Origin')
+        if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+
     except Exception as e:
         return handle_error(e)
 

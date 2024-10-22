@@ -290,6 +290,9 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         ]
         self.logger.info(f"Stage: {self.name} set output data: {self.output_data_names}")
         return self
+    
+    def get_output_names(self):
+        return self.output_data_names
 
     def set_pipeline(self, pipeline):
         self.pipeline = pipeline
