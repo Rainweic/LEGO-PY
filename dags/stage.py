@@ -170,7 +170,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 raise e
         else:
             self.logger.warning(f"数据文件不存在: {file_path}")
-            raise FileNotFoundError
+            raise FileNotFoundError(f"数据文件不存在: {file_path}")
 
     async def write(self, k: str, v: object) -> None:
         """写入输出数据到本地磁盘，并记录文件位置到sqlite"""

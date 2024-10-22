@@ -16,11 +16,9 @@ pipeline中可以并行运行的一组阶段称为"Group"。在串行模式下,G
 import os
 import pickle
 import typing
-import logging
 import datetime
 import hashlib
 import json
-import asyncio
 import aiofiles
 import enum
 
@@ -29,11 +27,10 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 from io import BytesIO
-from multiprocessing.pool import ThreadPool
 
 from .serialization import CloudPickleSerializer
 from .cache import SQLiteCache
-from .stage import StageExecutor, BaseStage
+from .stage import BaseStage
 from utils.logger import setup_logger
 
 
@@ -94,6 +91,10 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
         self._initialize_stage_statuses()
 
+        self.stages = []  # 用列表按顺序存储阶段
+        self.stage_dict = {}  # 用字典存储阶段，键为阶段名称
+        self.dependencies = {}  # 存储阶段间的依赖关系
+
     def generate_job_id(self):
         self.job_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         return self.job_id
@@ -107,8 +108,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         for stage in self.stages_to_add:
             self.add_stage(stage=stage)
         
-        await self.start(parallel=self.parallel,
-                         visualize=self.visualize,
+        await self.start(visualize=self.visualize,
                          save_dags=self.save_dags,
                          force_rerun=self.force_rerun)
 
@@ -165,6 +165,10 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
         if not nx.is_directed_acyclic_graph(self.pipeline):
             raise DAGVerificationException("Pipeline不再是一个DAG!")
+
+        self.stages.append(stage)
+        self.stage_dict[stage.name] = stage
+        self.dependencies[stage.name] = set()
 
     def _compute_pipeline_hash(self):
         """
@@ -242,7 +246,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.logger.info(f"[Running stage] {stage_name}")
         await self._update_stage_status(stage_name, StageStatus.RUNNING)
         try:
-            await self.pipeline.nodes[stage_name]["stage_wrapper"].run()
+            await self.stage_dict[stage_name].run()  # 使用 stage_dict 而不是 stages
             await self._update_stage_status(stage_name, StageStatus.SUCCESS)
             await self._write_output_names(stage_name)
             self.completed_stages.append(stage_name)
@@ -256,7 +260,6 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
     # 主要函数入口
     async def start(
         self,
-        parallel: bool = True,
         visualize: bool = False,
         save_dags: bool = True,
         force_rerun: bool = False,
@@ -269,7 +272,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             await self._visualize(save_dags)
 
         self.logger.info("序列化pipeline并写入SQLite")
-        await self.write("pipeline", self.serialize(self.pipeline))
+        await self.write("pipeline", self.serialize(self.stage_dict))
 
         if force_rerun:
             self.logger.info("强制重跑所有阶段")
@@ -290,21 +293,10 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
                 self.logger.info("Pipeline 发生改动，重头运行")
                 self.completed_stages = list()
 
-        sorted_grouped_stages = self.topological_sort_grouped()
-        for group in sorted_grouped_stages:
-            stages_to_run = [stage for stage in group if stage not in self.completed_stages]
-            self.logger.info("处理组: %s", stages_to_run)
-
-            if parallel:
-                tasks = [self.run_stage(stage) for stage in stages_to_run]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for stage, result in zip(stages_to_run, results):
-                    if isinstance(result, Exception):
-                        self.logger.error(f"Stage {stage} failed: {str(result)}")
-            else:
-                for stage in stages_to_run:
-                    await self.run_stage(stage)
-                        # break
+        sorted_stages = self._topological_sort()
+        for stage_name in sorted_stages:
+            if stage_name not in self.completed_stages:
+                await self.run_stage(stage_name)
 
         await self._delete_checkpoint()
         self.logger.info("Finish all tasks.")
@@ -343,3 +335,33 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
             print(f"Pipeline visualization saved to: {save_path}")
         else:
             plt.show()
+
+    def _build_dependencies(self):
+        for stage in self.stages:
+            for preceding_stage in stage.preceding_stages:
+                self.dependencies[stage.name].add(preceding_stage.name)
+
+    def _topological_sort(self):
+        in_degree = {stage.name: len(self.dependencies[stage.name]) for stage in self.stages}
+        queue = [stage.name for stage in self.stages if in_degree[stage.name] == 0]
+        sorted_stages = []
+
+        while queue:
+            current_stage = queue.pop(0)
+            sorted_stages.append(current_stage)
+
+            for stage in self.stages:
+                if current_stage in self.dependencies[stage.name]:
+                    in_degree[stage.name] -= 1
+                    if in_degree[stage.name] == 0:
+                        queue.append(stage.name)
+
+        if len(sorted_stages) != len(self.stages):
+            raise DAGVerificationException("Pipeline中存在循环依赖!")
+
+        return sorted_stages
+
+    def _is_acyclic(self):
+        return len(self._topological_sort()) == len(self.stages)
+
+
