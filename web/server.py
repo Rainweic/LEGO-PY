@@ -248,7 +248,8 @@ async def get_schema():
             data_path = await cache.read(output_name)
             if data_path.endswith('.parquet'):
                 # 使用 scan_parquet 来创建懒惰查询
-                cols_schema = {str(k): str(v) for k, v in pl.read_parquet_schema(data_path).items()}
+                cols_dtype = {str(k): str(v) for k, v in pl.read_parquet_schema(data_path).items()}
+                cols_schema = [{'key': name, 'name': name, 'type': dtype} for name, dtype in cols_dtype.items()]
                 response = jsonify({"schema": cols_schema})
         else:
             response = jsonify({"data": "数据暂未生成"})
