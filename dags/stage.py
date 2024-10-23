@@ -125,7 +125,8 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self._n_outputs = n_outputs
         self._collect_result = False     # forward函数之后对LazyFrame是否执行collect
         self._show_collect = False
-        self.logger = None
+        self.logger = logging
+        self.summary = []
 
     def set_job_id(self, job_id):
         self._job_id = job_id
@@ -368,6 +369,13 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                     await self.write(o_n, o)
         else:
             self.logger.warning(f"stage: {self.name} 无任何输出")
+
+        if len(self.summary) > 0:
+            """summary需要长这样: [{"图表1": 图表.dump_options_with_quotes()}, {"图表2": 图表.dump_options_with_quotes()}]"""
+            if not isinstance(self.summary, list) or not all(isinstance(item, dict) for item in self.summary):
+                raise TypeError("summary需要是包含字典的列表,每个字典包含图表名称和对应的dump_options_with_quotes()结果!")
+            self.logger.warning(f"stage: {self.name} 存在summary，开始写入数据库")
+            await SQLiteCache.write(self, f"{self._job_id}_{self.name}_summary", pickle.dumps(self.summary))
 
 
 class CustomStage(BaseStage):

@@ -231,17 +231,17 @@ async def get_output():
         return handle_error(e)
 
 
-@app.route("/schema")
-async def get_schema():
-    job_id = request.args.get("job_id")
-    stage_name = request.args.get("node_id")
+# @app.route("/schema")
+# async def get_schema():
+#     job_id = request.args.get("job_id")
+#     stage_name = request.args.get("node_id")
 
-    try:
-        # 创建一个SQLiteCache实例
-        cache = SQLiteCache()
-        ...
-    except Exception as e:
-        pass
+#     try:
+#         # 创建一个SQLiteCache实例
+#         cache = SQLiteCache()
+#         ...
+#     except Exception as e:
+#         pass
 
 
 def bar_base():
@@ -255,7 +255,8 @@ def bar_base():
         .add_yaxis("商家B", [randrange(0, 100) for _ in range(6)])
         .set_global_opts(title_opts=opts.TitleOpts(title="Bar-基本示例", subtitle="我是副标题"))
     )
-    return c.dump_options_with_quotes()
+    summary = c.dump_options_with_quotes()
+    return {"hasData": True, "datas": [{"图表1": summary, "图表2": summary}]}
 
 
 @app.route("/summary")
@@ -263,8 +264,20 @@ async def get_summary():
     job_id = request.args.get("job_id")
     stage_name = request.args.get("node_id")
 
-    tmp_data = bar_base()
-    response = jsonify({"hasData": True, "data": tmp_data})
+    try:
+        # 创建一个SQLiteCache实例
+        cache = SQLiteCache()
+        summary = await cache.read(f"{job_id}_{stage_name}_summary")
+        # print(summary)
+    except Exception as e:
+        return handle_error(e)
+
+    if summary:
+        response = jsonify({"hasData": True, "datas": pickle.loads(summary)})
+    else:
+        response = jsonify({"hasData": False, "datas": []})
+
+    # response = jsonify(bar_base())
 
     origin = request.headers.get('Origin')
     if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
