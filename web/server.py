@@ -231,32 +231,51 @@ async def get_output():
         return handle_error(e)
 
 
-# @app.route("/schema")
-# async def get_schema():
-#     job_id = request.args.get("job_id")
-#     stage_name = request.args.get("node_id")
+@app.route("/cols_schema")
+async def get_schema():
+    job_id = request.args.get("job_id")
+    stage_name = request.args.get("node_id")
+    output_idx = int(request.args.get("output_idx"))
 
-#     try:
-#         # 创建一个SQLiteCache实例
-#         cache = SQLiteCache()
-#         ...
-#     except Exception as e:
-#         pass
+    try:
+        # 创建一个SQLiteCache实例
+        cache = SQLiteCache()
+        # 获取组件输出命名
+        output_names = await cache.read(f"{job_id}_{stage_name}_output_names")
+        if output_names:
+            output_name = pickle.loads(output_names)[output_idx]
+            logging.info(f"reading output: {output_name}")
+            data_path = await cache.read(output_name)
+            if data_path.endswith('.parquet'):
+                # 使用 scan_parquet 来创建懒惰查询
+                cols_schema = {str(k): str(v) for k, v in pl.read_parquet_schema(data_path).items()}
+                response = jsonify({"schema": cols_schema})
+        else:
+            response = jsonify({"data": "数据暂未生成"})
+            logging.warning("读取数据输出失败")
+        
+        origin = request.headers.get('Origin')
+        if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+    except Exception as e:
+        return handle_error(e)
 
 
-def bar_base():
-    from random import randrange
-    from pyecharts import options as opts
-    from pyecharts.charts import Bar
-    c = (
-        Bar()
-        .add_xaxis(["衬衫", "羊毛衫", "雪纺衫", "裤子", "高跟鞋", "袜子"])
-        .add_yaxis("商家A", [randrange(0, 100) for _ in range(6)])
-        .add_yaxis("商家B", [randrange(0, 100) for _ in range(6)])
-        .set_global_opts(title_opts=opts.TitleOpts(title="Bar-基本示例", subtitle="我是副标题"))
-    )
-    summary = c.dump_options_with_quotes()
-    return {"hasData": True, "datas": [{"图表1": summary, "图表2": summary}]}
+# def bar_base():
+#     from random import randrange
+#     from pyecharts import options as opts
+#     from pyecharts.charts import Bar
+#     c = (
+#         Bar()
+#         .add_xaxis(["衬衫", "羊毛衫", "雪纺衫", "裤子", "高跟鞋", "袜子"])
+#         .add_yaxis("商家A", [randrange(0, 100) for _ in range(6)])
+#         .add_yaxis("商家B", [randrange(0, 100) for _ in range(6)])
+#         .set_global_opts(title_opts=opts.TitleOpts(title="Bar-基本示例", subtitle="我是副标题"))
+#     )
+#     summary = c.dump_options_with_quotes()
+#     return {"hasData": True, "datas": [{"图表1": summary, "图表2": summary}]}
 
 
 @app.route("/summary")
