@@ -264,7 +264,7 @@ async def get_summary():
     stage_name = request.args.get("node_id")
 
     tmp_data = bar_base()
-    response = jsonify(tmp_data)
+    response = jsonify({"hasData": True, "data": tmp_data})
 
     origin = request.headers.get('Origin')
     if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
