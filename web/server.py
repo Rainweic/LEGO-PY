@@ -231,5 +231,47 @@ async def get_output():
         return handle_error(e)
 
 
+@app.route("/schema")
+async def get_schema():
+    job_id = request.args.get("job_id")
+    stage_name = request.args.get("node_id")
+
+    try:
+        # 创建一个SQLiteCache实例
+        cache = SQLiteCache()
+        ...
+    except Exception as e:
+        pass
+
+
+def bar_base():
+    from random import randrange
+    from pyecharts import options as opts
+    from pyecharts.charts import Bar
+    c = (
+        Bar()
+        .add_xaxis(["衬衫", "羊毛衫", "雪纺衫", "裤子", "高跟鞋", "袜子"])
+        .add_yaxis("商家A", [randrange(0, 100) for _ in range(6)])
+        .add_yaxis("商家B", [randrange(0, 100) for _ in range(6)])
+        .set_global_opts(title_opts=opts.TitleOpts(title="Bar-基本示例", subtitle="我是副标题"))
+    )
+    return c.dump_options_with_quotes()
+
+
+@app.route("/summary")
+async def get_summary():
+    job_id = request.args.get("job_id")
+    stage_name = request.args.get("node_id")
+
+    tmp_data = bar_base()
+    response = jsonify(tmp_data)
+
+    origin = request.headers.get('Origin')
+    if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+        response.headers.add("Access-Control-Allow-Origin", origin)
+    response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
+
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=4242)
