@@ -235,77 +235,6 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         self.logger.info(f"Save output names to sqlite: {output_names}")
         await self.write(f"{self.job_id}_{stage_name}_output_names", pickle.dumps(output_names))
 
-    async def run_stage(self, stage_name: str) -> None:
-        """
-        运行pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
-        并使用所需的'run'方法执行。
-
-        参数:
-            stage_name <str>: pipeline中阶段的名称。
-        """
-        self.logger.info(f"[Running stage] {stage_name}")
-        await self._update_stage_status(stage_name, StageStatus.RUNNING)
-        try:
-            await self.stage_dict[stage_name].run()  # 使用 stage_dict 而不是 stages
-            await self._update_stage_status(stage_name, StageStatus.SUCCESS)
-            await self._write_output_names(stage_name)
-            self.completed_stages.append(stage_name)
-        except Exception as e:
-            error_msg = f"Stage {stage_name} failed: {str(e)}"
-            self.logger.error(error_msg)
-
-            self.stage_dict[stage_name].logger.error("------ 报错 ------")
-            self.stage_dict[stage_name].logger.error(error_msg)
-            self.stage_dict[stage_name].logger.exception("完整的错误栈信息:")
-            await self._update_stage_status(stage_name, StageStatus.FAILED)
-            raise e
-        finally:
-            await self._save_checkpoint()
-
-    # 主要函数入口
-    async def start(
-        self,
-        visualize: bool = False,
-        save_dags: bool = True,
-        force_rerun: bool = False,
-    ) -> None:
-        """
-        执行pipeline(及其所有组成阶段)的方法。执行顺序由分组拓扑排序定义。
-        """
-
-        if visualize:
-            await self._visualize(save_dags)
-
-        self.logger.info("序列化pipeline并写入SQLite")
-        await self.write("pipeline", self.serialize(self.stage_dict))
-
-        if force_rerun:
-            self.logger.info("强制重跑所有阶段")
-            self.completed_stages = list()
-            await self._delete_checkpoint()
-            self.logger.info(f"所有节点: {self.pipeline.nodes}")
-        else:
-            checkpoint_data = await self._load_checkpoint()
-            if checkpoint_data:
-                previous_pipeline_hash = checkpoint_data["pipeline_hash"]
-                self.logger.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
-            else:
-                previous_pipeline_hash = None
-
-            current_pipeline_hash = self._compute_pipeline_hash()
-
-            if previous_pipeline_hash and previous_pipeline_hash != current_pipeline_hash:
-                self.logger.info("Pipeline 发生改动，重头运行")
-                self.completed_stages = list()
-
-        sorted_stages = self._topological_sort()
-        for stage_name in sorted_stages:
-            if stage_name not in self.completed_stages:
-                await self.run_stage(stage_name)
-
-        await self._delete_checkpoint()
-        self.logger.info("Finish all tasks.")
-
     async def get_graph_last_output(self):
         return await self.read(self.completed_stages[-1])
     
@@ -368,5 +297,79 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
     def _is_acyclic(self):
         return len(self._topological_sort()) == len(self.stages)
+    
+    async def run_stage(self, stage_name: str) -> None:
+        """
+        运行pipeline/DAG特定阶段的方法。使用阶段名称获取BaseStage的相关实例,
+        并使用所需的'run'方法执行。
+
+        参数:
+            stage_name <str>: pipeline中阶段的名称。
+        """
+        self.logger.info(f"[Running stage] {stage_name}")
+        await self._update_stage_status(stage_name, StageStatus.RUNNING)
+        try:
+            await self.stage_dict[stage_name].run()  # 使用 stage_dict 而不是 stages
+            await self._update_stage_status(stage_name, StageStatus.SUCCESS)
+            await self._write_output_names(stage_name)
+            self.completed_stages.append(stage_name)
+        except Exception as e:
+            error_msg = f"Stage {stage_name} failed: {str(e)}"
+            self.logger.error(error_msg)
+
+            self.stage_dict[stage_name].logger.error("------ 报错 ------")
+            self.stage_dict[stage_name].logger.error(error_msg)
+            self.stage_dict[stage_name].logger.exception("完整的错误栈信息:")
+            
+            await self._update_stage_status(stage_name, StageStatus.FAILED)
+            raise e
+        finally:
+            await self._save_checkpoint()
+
+    # 主要函数入口
+    async def start(
+        self,
+        visualize: bool = False,
+        save_dags: bool = True,
+        force_rerun: bool = False,
+    ) -> None:
+        """
+        执行pipeline(及其所有组成阶段)的方法。执行顺序由分组拓扑排序定义。
+        """
+
+        if visualize:
+            await self._visualize(save_dags)
+
+        self.logger.info("序列化pipeline并写入SQLite")
+        await self.write("pipeline", self.serialize(self.stage_dict))
+
+        if force_rerun:
+            self.logger.info("强制重跑所有阶段")
+            self.completed_stages = list()
+            await self._delete_checkpoint()
+            # TODO 运行全部 会有遗漏最后一个节点
+            self.logger.info(f"所有节点: {self.pipeline.nodes}")
+        else:
+            checkpoint_data = await self._load_checkpoint()
+            if checkpoint_data:
+                previous_pipeline_hash = checkpoint_data["pipeline_hash"]
+                self.logger.info(f"从检查点恢复, 已完成的阶段: {self.completed_stages}")
+            else:
+                previous_pipeline_hash = None
+
+            current_pipeline_hash = self._compute_pipeline_hash()
+
+            if previous_pipeline_hash and previous_pipeline_hash != current_pipeline_hash:
+                self.logger.info("Pipeline 发生改动，重头运行")
+                self.completed_stages = list()
+
+        sorted_stages = self._topological_sort()
+        for stage_name in sorted_stages:
+            if stage_name not in self.completed_stages:
+                await self.run_stage(stage_name)
+
+        await self._delete_checkpoint()
+        self.logger.info("Finish all tasks.")
+
 
 
