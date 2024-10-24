@@ -152,7 +152,7 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
         初始化所有stage的状态为DEFAULT
         """
         for stage_name in self.pipeline.nodes:
-            self.write_sync(f"{stage_name}", StageStatus.DEFAULT.value)
+            self.write_sync(f"{stage_name}", StageStatus.WAITING.value)
 
     async def _update_stage_status(self, stage_name: str, status: StageStatus):
         """

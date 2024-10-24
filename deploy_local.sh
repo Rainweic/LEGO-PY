@@ -15,12 +15,15 @@ fi
 # 设置 PYTHONPATH
 export PYTHONPATH=$(pwd)
 
-# 定义日志文件路径
-LOG_FILE="server.log"
+# # 定义日志文件路径
+# LOG_FILE="server.log"
 
-# 启动服务器并将输出重定向到日志文件
-echo -e "${GREEN}启动服务器并将日志写入 $LOG_FILE${NC}"
-python web/server.py >> $LOG_FILE 2>&1 &
+# # 启动服务器并将输出重定向到日志文件
+# echo -e "${GREEN}启动服务器并将日志写入 $LOG_FILE${NC}"
+# python web/server.py >> $LOG_FILE 2>&1 &
+
+echo -e "${GREEN}启动服务器"
+python web/server.py
 
 # 获取服务器的进程 ID
 SERVER_PID=$!
