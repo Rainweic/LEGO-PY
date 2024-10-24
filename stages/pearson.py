@@ -4,11 +4,11 @@ from dags.stage import BaseStage
 
 class Pearson(BaseStage):
 
-    def __init__(self, label_col: str, cols: list[str] = None, exclude_cols: list[str] = None):
+    def __init__(self, label_col: str, cols: list[str] = None):
         super().__init__(n_outputs=1)
         self.label_col = label_col
         self.cols = cols
-        self.exclude_cols = exclude_cols + [self.label_col]
+        self.exclude_cols = [self.label_col]
 
     def forward(self, lf: pl.LazyFrame) -> pl.LazyFrame:
         

@@ -197,7 +197,7 @@ async def get_output():
                 lazy_df = pl.scan_parquet(data_path)
                 
                 # 计算总行数
-                total = lazy_df.select(pl.count()).collect().item()
+                total = lazy_df.select(pl.len()).collect().item()
                 
                 # 计算起始行和结束行
                 start_row = page_idx * n_rows_one_page
@@ -254,6 +254,21 @@ async def get_schema():
         else:
             response = jsonify({"data": "数据暂未生成"})
             logging.warning("读取数据输出失败")
+
+        # response = jsonify({
+        #                     "schema": [
+        #                         {
+        #                             "key": "mem_id",
+        #                             "name": "mem_id",
+        #                             "type": "Int64"
+        #                         },
+        #                         {
+        #                             "key": "old_price_level",
+        #                             "name": "old_price_level",
+        #                             "type": "Int64"
+        #                         }
+        #                     ]
+        #                 })
         
         origin = request.headers.get('Origin')
         if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
