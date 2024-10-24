@@ -2,9 +2,8 @@ import yaml
 import asyncio
 import os
 import importlib.util
-import logging
-import sys
 import traceback
+from utils.logger import setup_logger
 from stages import create_stage
 from dags.pipeline import Pipeline, StageStatus
 
@@ -54,6 +53,8 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
         job_id = pipeline_config.get("name", None)
 
+        # logging = setup_logger(name="parser", prefix="parser", job_id=job_id)
+
         pipeline_args = pipeline_config.get("args", {})
         parallel = pipeline_args.get("parallel", None)
         visualize = pipeline_args.get("visualize", False)
@@ -68,7 +69,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
             # 解析各个阶段
             for stage in pipeline_config.get('stages', []):
 
-                logging.info(f"Auto create stage...: {stage}")
+                p.logger.info(f"Auto create stage...: {stage}")
                 # print(pipeline_config["stages"])
 
                 stage_type = list(stage.keys())[0]
@@ -89,7 +90,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     try:
                         script_path = stage_info["path"]
                     except KeyError as e:
-                        logging.error(f"'CustomFunc', 'CustomStage'需要通过path来设定脚本所在路径, '.'代表yaml文件同路径、同名.py文件")
+                        p.logger.error(f"'CustomFunc', 'CustomStage'需要通过path来设定脚本所在路径, '.'代表yaml文件同路径、同名.py文件")
                     if script_path == ".":
                         # 获取yaml文件所在路径
                         script_path = yaml_file.replace(".yaml", ".py")
@@ -97,15 +98,16 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     # 从script_path中导入指定函数
                     module = import_module_from_script(script_path=script_path, module_name=module_name)
                     stage_args = stage_info.get("args", {})
-                    logging.info(f"[{stage_type}] {module_name}'s args: {stage_args}")
+                    p.logger.info(f"[{stage_type}] {module_name}'s args: {stage_args}")
                     try:
                         stage_instance = module(**stage_args)
                     except Exception as e:
                         error_msg = f"无法创建实例. Stage信息：{stage}"
-                        logging.error(error_msg)
-                        logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        p.logger.error(error_msg)
+                        p.logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
                         await p._update_stage_status(stage_info['name'], StageStatus.FAILED)
-                        raise TypeError(error_msg)
+                        # raise TypeError(error_msg)
+                        continue
                     # 设置name
                     name = stage_info['name']
                     if name:
@@ -115,10 +117,11 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                         stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'], job_id=job_id)
                     except Exception as e:
                         error_msg = f"输入参数错误：{stage_info['args']}, 无法创建实例. Stage信息：{stage}"
-                        logging.error(error_msg)
-                        logging.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        p.logger.error(error_msg)
+                        p.logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
                         await p._update_stage_status(stage_info['name'], StageStatus.FAILED)
-                        raise TypeError(error_msg)
+                        # raise TypeError(error_msg)
+                        continue
                 
                 # stage 设置
                 stage_instance.set_pipeline(p)
@@ -152,7 +155,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                         stage_instance.after(before_stages)
                     except KeyError as e:
                         # 这里可能是因为画布从中间节点开始执行，然后获取不到上游的stage，但不影响运行
-                        logging.warning(f"找不到命名为{e.args[0]}的stage")
+                        p.logger.warning(f"找不到命名为{e.args[0]}的stage")
 
                 if stage_info.get("collect_result", False):
                     show = stage_info.get("show_collect_result", True)
@@ -160,7 +163,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
                 instance[stage_info['name']] = stage_instance
 
-                logging.info("Finish create stage!")
+                p.logger.info("Finish create stage!")
 
             out_p.append(p)
 
