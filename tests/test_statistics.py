@@ -5,7 +5,7 @@ from stages import Statistics
 def test_statistics():
     # 创建测试数据
     test_df = pl.DataFrame({
-        "A": [1, 2, 3, None, 5],
+        "A": [1, 2, 1, None, 5],
         "B": [1.1, 2.2, 3.3, 4.4, 5.5],
         "C": ["a", "b", "c", "a", None]
     })
