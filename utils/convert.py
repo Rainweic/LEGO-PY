@@ -3,6 +3,10 @@ import yaml
 import datetime
 import logging
 
+from pyecharts.globals import CurrentConfig
+from pyecharts.render.engine import RenderEngine
+
+
 
 def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
 
@@ -98,3 +102,9 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
     }
     
     return yaml.dump(yaml_content, allow_unicode=True), job_id
+
+
+def chart_2_html(table):
+    env = CurrentConfig.GLOBAL_ENV
+    tpl = env.get_template("components.html")
+    return tpl.render(chart=RenderEngine.generate_js_link(table))

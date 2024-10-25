@@ -99,10 +99,12 @@ class XGBImportance(XGB):
         f_i_bar_list = []
         for imp_type in ['weight', 'gain', 'cover', 'total_gain', 'total_cover']:
             importance = model.get_score(importance_type=imp_type)
+            cols = list(importance.keys())
+            data = [importance[c] for c in cols]
             f_i_bar = (
                 Bar()
-                .add_xaxis(self.train_cols)
-                .add_yaxis(imp_type, [float(importance[c]) for c in self.train_cols])
+                .add_xaxis(cols)
+                .add_yaxis(imp_type, data)
                 .set_global_opts(title_opts=opts.TitleOpts(title=f"特征重要性-{imp_type}"))
             )
             f_i_bar_list.append({imp_type: f_i_bar.dump_options_with_quotes()})

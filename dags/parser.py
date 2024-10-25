@@ -125,6 +125,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                 
                 # stage 设置
                 stage_instance.set_pipeline(p)
+                stage_instance.logger.info(stage);
 
                 if stage_info.get('inputs', None):
                     for i in stage_info["inputs"]:
