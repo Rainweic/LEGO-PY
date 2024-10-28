@@ -72,12 +72,12 @@ class XGB(BaseStage):
             deval_evals_result = model.eval(deval)
             self.logger.info(f"验证集评估结果: {deval_evals_result}")
         
-        return {"cols": self.train_cols, "xgb": model}
+        return {"cols": self.train_cols, "model": model, "type": "XGB"}
     
     @staticmethod
     def predict(model, lf: pl.LazyFrame):
         cols = model["cols"]
-        model = model["xgb"]
+        model = model["model"]
         if isinstance(lf, pl.LazyFrame):
             X_test = lf.select(cols).collect()
         else:

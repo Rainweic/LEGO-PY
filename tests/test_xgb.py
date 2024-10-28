@@ -3,6 +3,7 @@ import numpy as np
 import polars as pl
 from stages.xgb import XGB
 import xgboost as xgb
+from stages.predict import Predict
 
 class TestXGB(unittest.TestCase):
 
@@ -32,19 +33,19 @@ class TestXGB(unittest.TestCase):
         trained_model = self.model.train(self.train_data)
         
         # 验证返回的是否为 XGBoost 模型
-        self.assertIsInstance(trained_model['xgb'], xgb.Booster)
+        self.assertIsInstance(trained_model['model'], xgb.Booster)
 
     def test_train_with_eval(self):
         trained_model = self.model.train(self.train_data, self.eval_data)
         
         # 验证返回的是否为 XGBoost 模型
-        self.assertIsInstance(trained_model['xgb'], xgb.Booster)
+        self.assertIsInstance(trained_model['model'], xgb.Booster)
 
     def test_forward(self):
         result = self.model.forward(self.train_data, self.eval_data)
         
         # 验证返回的是否为 XGBoost 模型
-        self.assertIsInstance(result['xgb'], xgb.Booster)
+        self.assertIsInstance(result['model'], xgb.Booster)
 
     def test_train_cols_auto_detection(self):
         model = XGB(label_col=self.label_col)  # 不指定 train_cols
@@ -81,7 +82,8 @@ class TestXGB(unittest.TestCase):
         import pickle
         model_pk = pickle.dumps(model_dict)
         model_dict = pickle.loads(model_pk)
-        out = self.model.predict(model_dict, self.eval_data)
+        predict = Predict()
+        out = predict.forward(model_dict, self.eval_data)
         print("============================")
         print("预测结果", out)
 
