@@ -2,6 +2,7 @@ import logging
 import importlib
 import os
 import inspect
+from utils.logger import setup_logger
 
 # 获取当前目录下的所有模块
 stages_dir = os.path.dirname(__file__)
@@ -21,11 +22,7 @@ for module in modules:
 __all__ = [name for name in globals() if not name.startswith('_')]
 
 
-logging.basicConfig(
-    format="[STAGES]: %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-
-def create_stage(stage_type: str, name: str, args: dict):
+def create_stage(stage_type: str, name: str, args: dict, job_id: str = None):
     """
     根据阶段类型、名称和参数创建相应的阶段实例。
 
@@ -44,7 +41,16 @@ def create_stage(stage_type: str, name: str, args: dict):
 
     # 创建阶段实例并返回
     stage_obj = stage_class(**args)
+
     if name:
         stage_obj.name = name
 
+    # # 为这个 stage 实例设置日志记录器
+    logger = setup_logger(f"{name}", "STAGE", job_id=job_id)
+    stage_obj.logger = logger
+
     return stage_obj
+
+# 在每个stage文件中使用这个函数来设置日志记录器
+# 例如，在 my_stage.py 中：
+# logger = setup_logger(__name__)

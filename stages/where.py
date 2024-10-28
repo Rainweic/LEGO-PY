@@ -1,4 +1,3 @@
-import logging
 import polars as pl
 from dags.stage import CustomStage
 
@@ -29,7 +28,7 @@ class Where(CustomStage):
         condition_str = " AND ".join(self.conditions)
         sql_query = f"SELECT * FROM self WHERE {condition_str}"
 
-        logging.info(f"[WHERE SQL] {sql_query}")
+        self.logger.info(f"[WHERE SQL] {sql_query}")
 
         # 使用 Polars 的 SQL 方法进行过滤
         filtered_lf = lf.sql(sql_query)

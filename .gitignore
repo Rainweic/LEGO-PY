@@ -5,3 +5,4 @@ visualizations/
 *.pkl
 *.bin
 test.py
+*.log

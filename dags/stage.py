@@ -28,6 +28,7 @@ from tqdm import tqdm
 from .cache import SQLiteCache
 from .serialization import PickleSerializer
 from .cache import SQLiteCache
+from utils.logger import setup_logger
 
 
 LARGE_DATA_PATH = "./cache"
@@ -124,6 +125,8 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self._n_outputs = n_outputs
         self._collect_result = False     # forward函数之后对LazyFrame是否执行collect
         self._show_collect = False
+        self.logger = logging
+        self.summary = []
 
     def set_job_id(self, job_id):
         self._job_id = job_id
@@ -141,35 +144,67 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         return os.path.join(self.get_run_folder(), f"{name}_{hash_name}")
 
     async def read(self, k: str) -> object:
+        """从sqlite获取文件位置并读取"""
         file_path = await SQLiteCache.read(self, k)
+        self.logger.info(f"获取文件位置, 开始读取: {file_path}")
         if file_path and os.path.exists(file_path):
-            async with aiofiles.open(file_path, "rb") as f:
-                data = await f.read()
-                data_type = 'pandas' if file_path.endswith('.pandas') else 'polars' if file_path.endswith('.polars') else 'pickle'
-                try:
-                    return deserialize(data, data_type)
-                except Exception as e:
-                    logging.error(f"反序列化失败: {e}")
-                    raise e
+            # async with aiofiles.open(file_path, "rb") as f:
+            #     data = await f.read()
+            #     data_type = 'pandas' if file_path.endswith('.pandas') else 'polars' if file_path.endswith('.polars') else 'pickle'
+            #     try:
+            #         return deserialize(data, data_type)
+            #     except Exception as e:
+            #         self.logger.error(f"反序列化失败: {e}")
+            #         raise e
+
+            try:
+                async with aiofiles.open(file_path, "rb") as f:
+                    data = await f.read()
+                    if file_path.endswith('.parquet'):
+                        data = pl.scan_parquet(data)
+                    elif file_path.endswith('.pickle'):
+                        data = pickle.loads(data)
+                self.logger.info("读取成功")
+                return data
+            except Exception as e:
+                self.logger.error(f"读取数据失败: {e}")
+                raise e
         else:
-            logging.warning(f"数据文件不存在: {file_path}")
-            raise FileNotFoundError
+            self.logger.warning(f"数据文件不存在: {file_path}")
+            raise FileNotFoundError(f"数据文件不存在: {file_path}")
 
     async def write(self, k: str, v: object) -> None:
+        """写入输出数据到本地磁盘，并记录文件位置到sqlite"""
         file_path = self._get_data_path(k)
-        data_type = 'pandas' if isinstance(v, pd.DataFrame) else 'polars' if isinstance(v, (pl.DataFrame, pl.LazyFrame)) else 'pickle'
+        data_type = 'parquet' if isinstance(v, (pl.DataFrame, pl.LazyFrame)) else 'pickle'
         file_path += f".{data_type}"
-        logging.info(f"数据{k}开始写入: {file_path}")
+        self.logger.info(f"数据{k}开始写入: {file_path}")
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        async with aiofiles.open(file_path, "wb") as f:
-            try:
-                data = serialize(v)
-                await f.write(data)
-            except Exception as e:
-                logging.error(f"序列化失败: {e}")
-                raise e
-        await SQLiteCache.write(self, k, file_path)
-        logging.info(f"数据{k}已写入文件: {file_path}")
+        # async with aiofiles.open(file_path, "wb") as f:
+        #     try:
+        #         data = serialize(v)
+        #         await f.write(data)
+        #     except Exception as e:
+        #         self.logger.error(f"序列化失败: {e}")
+        #         raise e
+
+        try:
+            if isinstance(v, pd.DataFrame):
+                raise TypeError("请使用polars替代pandas实现")
+            elif isinstance(v, pl.DataFrame):
+                v.write_parquet(file_path)
+            elif isinstance(v, pl.LazyFrame):
+                v.sink_parquet(file_path)
+            else:
+                async with aiofiles.open(file_path, "wb") as f:
+                    pickle.dump(v, f)
+            
+            await SQLiteCache.write(self, k, file_path)
+            self.logger.info(f"数据{k}已写入文件: {file_path}")
+
+        except Exception as e:
+            self.logger.error(f"写入文件失败: {e}")
+            raise e
 
     @property
     def name(self) -> str:
@@ -203,7 +238,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             self.input_data_names = [input_data_name]
         else:
             raise TypeError("input_data_name类型不匹配")
-        logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
+        self.logger.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
 
     def add_input(self, input_data_name: str):
@@ -237,7 +272,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         assert isinstance(input_data_names, list)
         self.input_data_names = input_data_names
-        logging.info(f"Stage: {self.name} set input data: {self.input_data_names}")
+        self.logger.info(f"Stage: {self.name} set input data: {self.input_data_names}")
         return self
 
     def set_n_outputs(self):
@@ -254,8 +289,11 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self.output_data_names = [
             f"{self.name}_output_{i}" for i in range(self._n_outputs)
         ]
-        logging.info(f"Stage: {self.name} set output data: {self.output_data_names}")
+        self.logger.info(f"Stage: {self.name} set output data: {self.output_data_names}")
         return self
+    
+    def get_output_names(self):
+        return self.output_data_names
 
     def set_pipeline(self, pipeline):
         self.pipeline = pipeline
@@ -291,6 +329,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
 
         if self.input_data_names:
             input_datas = []
+            self.logger.warning(f"stage: {self.name} 开始读取输入: {self.input_data_names}")
             for name in tqdm(self.input_data_names, desc="Reading input data"):
                 try:
                     data = await self.read(name)
@@ -298,31 +337,45 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                         raise ValueError(f"无法读取输入数据: {name}")
                     input_datas.append(data)
                 except Exception as e:
-                    logging.error(f"Stage {self.__class__.__name__} 读取输入数据 {name} 时出错: {e}")
+                    self.logger.error(f"Stage {self.__class__.__name__} 读取输入数据 {name} 时出错: {e}")
                     raise RuntimeError(e)
+            self.logger.warning(f"stage: {self.name} 开始运行")
+            # 运行
             outs = self.forward(*input_datas, *args, **kwargs)
         else:
-            logging.warning(f"stage: {self.name} 无任何输入")
+            self.logger.warning(f"stage: {self.name} 无任何输入")
+            self.logger.warning(f"stage: {self.name} 开始运行")
+            # 运行
             outs = self.forward(*args, **kwargs)
 
         if self.output_data_names:
 
             if len(self.output_data_names) == 1:
                 o_n = self.output_data_names[0]
-                if self._collect_result and isinstance(outs, pl.LazyFrame):
+                # if self._collect_result and isinstance(outs, pl.LazyFrame):
+                if isinstance(outs, pl.LazyFrame):
                     outs = outs.collect()
-                    if self._show_collect:
-                        logging.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
+                if self._show_collect:
+                    self.logger.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
                 await self.write(o_n, outs)
             else:
                 for o_n, o in zip(self.output_data_names, outs):
-                    if self._collect_result and isinstance(o, pl.LazyFrame):
+                    # print(o.collect())
+                    # if self._collect_result and isinstance(o, pl.LazyFrame):
+                    if isinstance(o, pl.LazyFrame):
                         o = o.collect()
-                        if self._show_collect:
-                            logging.info(f"[Show Collect Result of Output {o_n}]\n{o}")
+                    if self._show_collect:
+                        self.logger.info(f"[Show Collect Result of Output {o_n}]\n{o}")
                     await self.write(o_n, o)
         else:
-            logging.warning(f"stage: {self.name} 无任何输出")
+            self.logger.warning(f"stage: {self.name} 无任何输出")
+
+        if len(self.summary) > 0:
+            """summary需要长这样: [{"图表1": 图表.dump_options_with_quotes()}, {"图表2": 图表.dump_options_with_quotes()}]"""
+            # if not isinstance(self.summary, list) or not all(isinstance(item, dict) for item in self.summary):
+            #     raise TypeError("summary需要是包含字典的列表,每个字典包含图表名称和对应的dump_options_with_quotes()结果!")
+            self.logger.warning(f"stage: {self.name} 存在summary，开始写入数据库")
+            await SQLiteCache.write(self, f"{self._job_id}_{self.name}_summary", pickle.dumps(self.summary))
 
 
 class CustomStage(BaseStage):

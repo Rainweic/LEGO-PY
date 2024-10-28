@@ -1,7 +1,8 @@
-import logging
 import polars as pl
 import xgboost as xgb
 
+from pyecharts.charts import Bar
+from pyecharts import options as opts
 from dags.stage import BaseStage
 
 
@@ -42,12 +43,12 @@ class XGB(BaseStage):
             self.train_cols = [col for col in train_df.columns if col != self.label_col]
 
         if self.label_col in self.train_cols:
-            logging.warn(f"检测到label在训练特征内，自动剔除")
+            self.logger.warn(f"检测到label在训练特征内，自动剔除")
             self.train_cols.remove(self.label_col)
 
-        logging.info(f"训练数据集特征: {self.train_cols}")
-        logging.info(f"训练数据集label: {self.label_col}")
-        logging.info(f"训练参数: {self.train_params}")
+        self.logger.info(f"训练数据集特征: {self.train_cols}")
+        self.logger.info(f"训练数据集label: {self.label_col}")
+        self.logger.info(f"训练参数: {self.train_params}")
 
         X = train_df.select(self.train_cols)
         y = train_df.select(self.label_col)
@@ -55,9 +56,12 @@ class XGB(BaseStage):
         # 将数据转换为XGBoost可用的DMatrix格式
         dtrain = xgb.DMatrix(X, label=y, feature_names=self.train_cols)
 
-        model = xgb.train(self.train_params, dtrain, self.num_round)
+        evals_result = {}
+        model = xgb.train(self.train_params, dtrain, self.num_round, evals_result=evals_result)
 
-        if eval_df:
+        self.logger.info(f"训练集评估结果: {evals_result}")
+        
+        if eval_df is not None:
             # 评估
             if isinstance(eval_df, pl.LazyFrame):
                 eval_df = eval_df.collect()
@@ -65,13 +69,12 @@ class XGB(BaseStage):
             X_eval = eval_df.select(self.train_cols)
             y_eval = eval_df.select(self.label_col)
             deval = xgb.DMatrix(X_eval, label=y_eval, feature_names=self.train_cols)
-            eval_result = {}
-            model.eval(deval, 'eval', eval_result)
-            logging.info(f"评估结果: {eval_result}")
+            deval_evals_result = model.eval(deval)
+            self.logger.info(f"验证集评估结果: {deval_evals_result}")
 
         return model
     
-    def forward(self, train_df: pl.DataFrame, eval_df: pl.DataFrame):
+    def forward(self, train_df: pl.DataFrame, eval_df: pl.DataFrame=None):
         return self.train(train_df=train_df, eval_df=eval_df)
 
 
@@ -84,23 +87,39 @@ class XGBImportance(XGB):
         self.topK = topK
         self.importance_type = importance_type
 
-    def forward(self, train_df: pl.DataFrame, model_xgb_f_importance: list[str]):
+    def forward(self, train_df: pl.DataFrame, model_xgb_f_importance: list[str]=None):
 
         if model_xgb_f_importance:
             # 上一个模型复用
-            return train_df.lazy().select(out_features), model_xgb_f_importance
+            return train_df.lazy().select(model_xgb_f_importance), model_xgb_f_importance
 
         model = self.train(train_df, None)
 
-        # 特征重要性
+        # 绘图
+        f_i_bar_list = []
+        for imp_type in ['weight', 'gain', 'cover', 'total_gain', 'total_cover']:
+            importance = model.get_score(importance_type=imp_type)
+            cols = list(importance.keys())
+            data = [importance[c] for c in cols]
+            f_i_bar = (
+                Bar()
+                .add_xaxis(cols)
+                .add_yaxis(imp_type, data)
+                .set_global_opts(title_opts=opts.TitleOpts(title=f"特征重要性-{imp_type}"))
+            )
+            f_i_bar_list.append({imp_type: f_i_bar.dump_options_with_quotes()})
+        
+        # 写入summary
+        self.summary.extend(f_i_bar_list)
+        # print(self.summary)
+
+        # 获取特征重要性
         importance = model.get_score(importance_type=self.importance_type)
         importance = sorted(importance.items(), key=lambda x: x[1], reverse=True)
-
         out_features = []
-
-        logging.info(f"特征重要性排名前{self.topK}：")
+        self.logger.info(f"特征重要性排名前{self.topK}：")
         for feature, score in importance[:self.topK]:
-            logging.info(f"{feature}: {score}")
+            self.logger.info(f"{feature}: {score}")
             out_features.append(feature)
 
         return train_df.lazy().select(out_features), out_features

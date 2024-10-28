@@ -2,9 +2,10 @@ import yaml
 import asyncio
 import os
 import importlib.util
-import logging
+import traceback
+from utils.logger import setup_logger
 from stages import create_stage
-from dags.pipeline import Pipeline
+from dags.pipeline import Pipeline, StageStatus
 
 
 def import_module_from_script(script_path: str, module_name: str):
@@ -39,6 +40,8 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
 
     with open(yaml_file, 'r', encoding='utf-8') as file:
         config = yaml.safe_load(file)
+
+    # print(config)
         
     # 解析全局参数
     global_args = config.get('global_args', {})
@@ -49,6 +52,8 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
     for pipeline_config in pipelines_config:
 
         job_id = pipeline_config.get("name", None)
+
+        # logging = setup_logger(name="parser", prefix="parser", job_id=job_id)
 
         pipeline_args = pipeline_config.get("args", {})
         parallel = pipeline_args.get("parallel", None)
@@ -64,7 +69,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
             # 解析各个阶段
             for stage in pipeline_config.get('stages', []):
 
-                logging.info(f"Auto create stage: {stage}")
+                p.logger.info(f"Auto create stage...: {stage}")
                 # print(pipeline_config["stages"])
 
                 stage_type = list(stage.keys())[0]
@@ -85,7 +90,7 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     try:
                         script_path = stage_info["path"]
                     except KeyError as e:
-                        logging.error(f"'CustomFunc', 'CustomStage'需要通过path来设定脚本所在路径, '.'代表yaml文件同路径、同名.py文件")
+                        p.logger.error(f"'CustomFunc', 'CustomStage'需要通过path来设定脚本所在路径, '.'代表yaml文件同路径、同名.py文件")
                     if script_path == ".":
                         # 获取yaml文件所在路径
                         script_path = yaml_file.replace(".yaml", ".py")
@@ -93,23 +98,45 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                     # 从script_path中导入指定函数
                     module = import_module_from_script(script_path=script_path, module_name=module_name)
                     stage_args = stage_info.get("args", {})
-                    logging.info(f"[{stage_type}] {module_name}'s args: {stage_args}")
-                    stage_instance = module(**stage_args)
+                    p.logger.info(f"[{stage_type}] {module_name}'s args: {stage_args}")
+                    try:
+                        stage_instance = module(**stage_args)
+                    except Exception as e:
+                        error_msg = f"无法创建实例. Stage信息：{stage}"
+                        p.logger.error(error_msg)
+                        p.logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        await p._update_stage_status(stage_info['name'], StageStatus.FAILED)
+                        # raise TypeError(error_msg)
+                        continue
                     # 设置name
                     name = stage_info['name']
                     if name:
                         stage_instance.name = name
                 else:
-                    stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'])
+                    try:
+                        stage_instance = create_stage(stage_type, stage_info['name'], stage_info['args'], job_id=job_id)
+                    except Exception as e:
+                        error_msg = f"输入参数错误：{stage_info['args']}, 无法创建实例. Stage信息：{stage}"
+                        p.logger.error(error_msg)
+                        p.logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
+                        await p._update_stage_status(stage_info['name'], StageStatus.FAILED)
+                        # raise TypeError(error_msg)
+                        continue
                 
                 # stage 设置
                 stage_instance.set_pipeline(p)
+                stage_instance.logger.info(stage);
 
                 if stage_info.get('inputs', None):
                     for i in stage_info["inputs"]:
                         if "." in i:
                             before_instance_name, output_idx = i.split(".")[0], int(i.split(".")[1])
-                            stage_instance.add_input(instance[before_instance_name].output_data_names[output_idx])
+
+                            if before_instance_name in instance:
+                                stage_instance.add_input(instance[before_instance_name].output_data_names[output_idx])
+                            else:
+                                # 若从某个节点开始执行，上一个节点是没有初始化的 直接拼接
+                                stage_instance.add_input(f"{before_instance_name}_output_{output_idx}")
                         else:
                             before_instance_name = i
                             for pre_stage_output_data_name in instance[before_instance_name].output_data_names:
@@ -126,16 +153,18 @@ async def load_pipelines_from_yaml(yaml_file: str) -> list[Pipeline]:
                             before_stages = [instance[before_instance_name]]
                         else:
                             raise TypeError("stages.name 必须是字符串或列表")
+                        stage_instance.after(before_stages)
                     except KeyError as e:
-                        raise KeyError(f"找不到命名为{e.args[0]}的stage")
-
-                    stage_instance.after(before_stages)
+                        # 这里可能是因为画布从中间节点开始执行，然后获取不到上游的stage，但不影响运行
+                        p.logger.warning(f"找不到命名为{e.args[0]}的stage")
 
                 if stage_info.get("collect_result", False):
-                    show = stage_info.get("show_collect_result", False)
+                    show = stage_info.get("show_collect_result", True)
                     stage_instance.collect_result(show=show)
 
                 instance[stage_info['name']] = stage_instance
+
+                p.logger.info("Finish create stage!")
 
             out_p.append(p)
 
