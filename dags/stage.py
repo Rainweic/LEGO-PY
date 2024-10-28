@@ -161,15 +161,21 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             try:
                 async with aiofiles.open(file_path, "rb") as f:
                     data = await f.read()
-                    if file_path.endswith('.parquet'):
-                        data = pl.scan_parquet(data)
-                    elif file_path.endswith('.pickle'):
-                        data = pickle.loads(data)
                 self.logger.info("读取成功")
-                return data
             except Exception as e:
                 self.logger.error(f"读取数据失败: {e}")
                 raise e
+            
+            try:
+                if file_path.endswith('.parquet'):
+                    data = pl.scan_parquet(file_path)
+                elif file_path.endswith('.pickle'):
+                    data = pickle.loads(file_path)
+            except Exception as e:
+                self.logger.error(f"加载数据{file_path}失败: {e}")
+                raise e
+            
+            return data
         else:
             self.logger.warning(f"数据文件不存在: {file_path}")
             raise FileNotFoundError(f"数据文件不存在: {file_path}")
