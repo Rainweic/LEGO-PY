@@ -1,39 +1,40 @@
 import polars as pl
 import numpy as np
 
-from dags.stage import stage
+from dags.stage import CustomStage
 
 
-@stage(n_outputs=1)
-def sample_lazyframe(lf: pl.LazyFrame, n: int, seed: int = None) -> pl.LazyFrame:
-    """
-    从 LazyFrame 中采样 n 行。
+class Sample(CustomStage):
 
-    参数:
-        lf (pl.LazyFrame): 输入的 LazyFrame。
-        n (int): 采样的行数。
-        seed (int, optional): 随机种子。
+    def __init__(self, n_sample=0, random=False, seed=None):
+        super().__init__(n_outputs=1)
+        self.n_sample = n_sample
+        self.random = random
+        self.seed = seed
 
-    返回:
-        pl.LazyFrame: 采样后的 LazyFrame。
-    """
-    if seed is not None:
-        np.random.seed(seed)
-
-    if isinstance(lf, pl.DataFrame):
-        lf = lf.lazy()
-    
-    # 获取 LazyFrame 的行数
-    num_rows = lf.collect().height
-    
-    # 生成随机行号
-    sampled_indices = np.random.choice(num_rows, n, replace=False)
-    
-    # 使用 with_row_count 添加行号，然后过滤行号
-    lf_sampled = (
-        lf.with_row_count("row_nr")
-        .filter(pl.col("row_nr").is_in(sampled_indices))
-        .drop("row_nr")
-    )
-    
-    return lf_sampled.lazy()
+    def forward(self, lf: pl.LazyFrame):
+        if isinstance(lf, pl.DataFrame):
+            lf = lf.lazy()
+        
+        # 使用 SQL 来实现随机或顺序采样
+        if self.random:
+            # 生成随机索引
+            total_rows = lf.select(pl.len()).collect().item()
+            if self.seed is not None:
+                np.random.seed(seed=self.seed)
+            random_indices = np.random.permutation(total_rows)
+            
+            # 使用随机索引创建一个新的列
+            lf_with_random = lf.with_columns(
+                pl.Series(name="__random_index__", values=random_indices)
+            )
+            
+            # 基于随机索引进行过滤
+            result = lf_with_random.filter(pl.col("__random_index__") < self.n_sample)
+        
+            # 移除临时的随机索引列
+            result = result.drop("__random_index__")
+            
+            return result
+        else:
+            return lf.slice(0, self.n_sample)
