@@ -126,6 +126,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self._collect_result = False     # forward函数之后对LazyFrame是否执行collect
         self._show_collect = False
         self.logger = logging
+        self.model = None
         self.summary = []
 
     def set_job_id(self, job_id):
@@ -317,6 +318,9 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         raise NotImplementedError()
 
+    def predict(self, model, lf: pl.LazyFrame):
+        raise NotImplementedError()
+
     async def run(self, *args, **kwargs):
         """
         运行阶段的主要方法。
@@ -376,6 +380,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             #     raise TypeError("summary需要是包含字典的列表,每个字典包含图表名称和对应的dump_options_with_quotes()结果!")
             self.logger.warning(f"stage: {self.name} 存在summary，开始写入数据库")
             await SQLiteCache.write(self, f"{self._job_id}_{self.name}_summary", pickle.dumps(self.summary))
+
 
 
 class CustomStage(BaseStage):

@@ -32,19 +32,19 @@ class TestXGB(unittest.TestCase):
         trained_model = self.model.train(self.train_data)
         
         # 验证返回的是否为 XGBoost 模型
-        self.assertIsInstance(trained_model, xgb.Booster)
+        self.assertIsInstance(trained_model['xgb'], xgb.Booster)
 
     def test_train_with_eval(self):
         trained_model = self.model.train(self.train_data, self.eval_data)
         
         # 验证返回的是否为 XGBoost 模型
-        self.assertIsInstance(trained_model, xgb.Booster)
+        self.assertIsInstance(trained_model['xgb'], xgb.Booster)
 
     def test_forward(self):
         result = self.model.forward(self.train_data, self.eval_data)
         
         # 验证返回的是否为 XGBoost 模型
-        self.assertIsInstance(result, xgb.Booster)
+        self.assertIsInstance(result['xgb'], xgb.Booster)
 
     def test_train_cols_auto_detection(self):
         model = XGB(label_col=self.label_col)  # 不指定 train_cols
@@ -75,6 +75,15 @@ class TestXGB(unittest.TestCase):
         
         # 验证自定义参数是否被正确使用
         self.assertEqual(model.train_params, custom_params)
+    
+    def test_save_load_model(self):
+        model_dict = self.model.forward(self.train_data, self.eval_data)
+        import pickle
+        model_pk = pickle.dumps(model_dict)
+        model_dict = pickle.loads(model_pk)
+        out = self.model.predict(model_dict, self.eval_data)
+        print("============================")
+        print("预测结果", out)
 
 if __name__ == '__main__':
     unittest.main()
