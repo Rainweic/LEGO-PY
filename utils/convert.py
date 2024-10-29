@@ -52,10 +52,12 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
                 nodes[target_node_name]["after"] = [source_node_name]
 
             # 设置inputs
-            input_idx = int(item['source']['port'].split('-')[1])
+            input_idx = int(item['source']['port'].split('-')[1])       # 上游节点的第idx个输出
             input_name = f"{source_node_name}.{input_idx}"
             if "inputs" in nodes[target_node_name]:
-                nodes[target_node_name]["inputs"].append(input_name)
+                insert_idx = int(item['target']['port'].split("-")[1])
+                nodes[target_node_name]["inputs"].insert(insert_idx, input_name)
+                # nodes[target_node_name]["inputs"].append(input_name)
             else:
                 nodes[target_node_name]["inputs"] = [input_name]
 
