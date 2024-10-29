@@ -7,10 +7,10 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # 没有颜色
 
 # 检查 Python 环境是否已激活
-if [ -z "$VIRTUAL_ENV" ]; then
-    echo -e "${YELLOW}警告: Python 虚拟环境未激活。${NC}"
-    echo -e "${YELLOW}请激活您的虚拟环境以确保依赖项正确。${NC}"
-fi
+# if [ -z "$VIRTUAL_ENV" ]; then
+#     echo -e "${YELLOW}警告: Python 虚拟环境未激活。${NC}"
+#     echo -e "${YELLOW}请激活您的虚拟环境以确保依赖项正确。${NC}"
+# fi
 
 # 设置 PYTHONPATH
 export PYTHONPATH=$(pwd)
