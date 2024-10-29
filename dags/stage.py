@@ -168,9 +168,9 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             
             try:
                 if file_path.endswith('.parquet'):
-                    data = pl.scan_parquet(file_path)
+                    data = pl.scan_parquet(data)
                 elif file_path.endswith('.pickle'):
-                    data = pickle.loads(file_path)
+                    data = pickle.loads(data)
             except Exception as e:
                 self.logger.error(f"加载数据{file_path}失败: {e}")
                 raise e
@@ -204,7 +204,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 v.sink_parquet(file_path)
             else:
                 async with aiofiles.open(file_path, "wb") as f:
-                    pickle.dump(v, f)
+                    await f.write(pickle.dumps(v))
             
             await SQLiteCache.write(self, k, file_path)
             self.logger.info(f"数据{k}已写入文件: {file_path}")
