@@ -17,15 +17,21 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 app = Flask(__name__)
+origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000"]
 # 设置 CORS，允许携带凭证
-CORS(app, resources={r"/rerun_graph": {"origins": ["http://127.0.0.1:8000", "http://localhost:8000"]}}, supports_credentials=True)
+CORS(app, resources={r"/rerun_graph": {"origins": origins}}, supports_credentials=True)
+
+
+@app.route('/test')
+def test():
+    return {"message": "Hello from py-lego"}
 
 
 # 新增一个函数来处理预检请求
 def handle_options_request():
     response = make_response()
     origin = request.headers.get('Origin')
-    if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+    if origin in origins:
         response.headers.add("Access-Control-Allow-Origin", origin)
     response.headers.add("Access-Control-Allow-Headers", "Content-Type")
     response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -39,7 +45,7 @@ def handle_error(e):
     print(error_message)
     response = jsonify({"error": error_message})
     origin = request.headers.get('Origin')
-    if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+    if origin in origins:
         response.headers.add("Access-Control-Allow-Origin", origin)
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response, 500
@@ -69,7 +75,7 @@ async def run_graph_logic(graph_json_str, force_rerun):
 
     response = jsonify({"message": "running", "data": {"job_id": job_id}})
     origin = request.headers.get('Origin')
-    if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+    if origin in origins:
         response.headers.add("Access-Control-Allow-Origin", origin)
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response
@@ -135,7 +141,7 @@ def get_stage_status():
             # 返回状态
             response = jsonify(ret)
             origin = request.headers.get('Origin')
-            if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+            if origin in origins:
                 response.headers.add("Access-Control-Allow-Origin", origin)
             response.headers.add("Access-Control-Allow-Credentials", "true")
             return response
@@ -165,7 +171,7 @@ async def get_cpm_log():
         
             response = jsonify({"log": log_content})
         origin = request.headers.get('Origin')
-        if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+        if origin in origins:
             response.headers.add("Access-Control-Allow-Origin", origin)
         response.headers.add("Access-Control-Allow-Credentials", "true")
         return response
@@ -222,7 +228,7 @@ async def get_output():
             logging.warning("读取数据输出失败")
         
         origin = request.headers.get('Origin')
-        if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+        if origin in origins:
             response.headers.add("Access-Control-Allow-Origin", origin)
         response.headers.add("Access-Control-Allow-Credentials", "true")
         return response
@@ -271,7 +277,7 @@ async def get_schema():
         #                 })
         
         origin = request.headers.get('Origin')
-        if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+        if origin in origins:
             response.headers.add("Access-Control-Allow-Origin", origin)
         response.headers.add("Access-Control-Allow-Credentials", "true")
         return response
@@ -315,7 +321,7 @@ async def get_summary():
     # response = jsonify(bar_base())
 
     origin = request.headers.get('Origin')
-    if origin in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+    if origin in origins:
         response.headers.add("Access-Control-Allow-Origin", origin)
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response
