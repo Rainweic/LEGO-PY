@@ -126,6 +126,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self._collect_result = False     # forward函数之后对LazyFrame是否执行collect
         self._show_collect = False
         self.logger = logging
+        self.model = None
         self.summary = []
 
     def set_job_id(self, job_id):
@@ -160,15 +161,21 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             try:
                 async with aiofiles.open(file_path, "rb") as f:
                     data = await f.read()
-                    if file_path.endswith('.parquet'):
-                        data = pl.scan_parquet(data)
-                    elif file_path.endswith('.pickle'):
-                        data = pickle.loads(data)
                 self.logger.info("读取成功")
-                return data
             except Exception as e:
                 self.logger.error(f"读取数据失败: {e}")
                 raise e
+            
+            try:
+                if file_path.endswith('.parquet'):
+                    data = pl.scan_parquet(data)
+                elif file_path.endswith('.pickle'):
+                    data = pickle.loads(data)
+            except Exception as e:
+                self.logger.error(f"加载数据{file_path}失败: {e}")
+                raise e
+            
+            return data
         else:
             self.logger.warning(f"数据文件不存在: {file_path}")
             raise FileNotFoundError(f"数据文件不存在: {file_path}")
@@ -197,7 +204,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 v.sink_parquet(file_path)
             else:
                 async with aiofiles.open(file_path, "wb") as f:
-                    pickle.dump(v, f)
+                    await f.write(pickle.dumps(v))
             
             await SQLiteCache.write(self, k, file_path)
             self.logger.info(f"数据{k}已写入文件: {file_path}")
@@ -317,6 +324,9 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         """
         raise NotImplementedError()
 
+    def predict(self, model, lf: pl.LazyFrame):
+        raise NotImplementedError()
+
     async def run(self, *args, **kwargs):
         """
         运行阶段的主要方法。
@@ -376,6 +386,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
             #     raise TypeError("summary需要是包含字典的列表,每个字典包含图表名称和对应的dump_options_with_quotes()结果!")
             self.logger.warning(f"stage: {self.name} 存在summary，开始写入数据库")
             await SQLiteCache.write(self, f"{self._job_id}_{self.name}_summary", pickle.dumps(self.summary))
+
 
 
 class CustomStage(BaseStage):

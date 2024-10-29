@@ -71,8 +71,20 @@ class XGB(BaseStage):
             deval = xgb.DMatrix(X_eval, label=y_eval, feature_names=self.train_cols)
             deval_evals_result = model.eval(deval)
             self.logger.info(f"验证集评估结果: {deval_evals_result}")
-
-        return model
+        
+        return {"cols": self.train_cols, "model": model, "type": "XGB"}
+    
+    @staticmethod
+    def predict(model, lf: pl.LazyFrame):
+        cols = model["cols"]
+        model = model["model"]
+        if isinstance(lf, pl.LazyFrame):
+            X_test = lf.select(cols).collect()
+        else:
+            X_test = lf.select(cols)
+        X_test = xgb.DMatrix(X_test, feature_names=cols)
+        y_score = model.predict(X_test)
+        return lf.with_columns(pl.lit(y_score).alias("y_score"))
     
     def forward(self, train_df: pl.DataFrame, eval_df: pl.DataFrame=None):
         return self.train(train_df=train_df, eval_df=eval_df)
