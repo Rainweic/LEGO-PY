@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 app = Flask(__name__)
-origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000"]
+origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000", "http://10.222.107.184:8000"]
 # 设置 CORS，允许携带凭证
 CORS(app, resources={r"/rerun_graph": {"origins": origins}}, supports_credentials=True)
 
