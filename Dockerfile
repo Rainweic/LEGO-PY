@@ -2,6 +2,8 @@ FROM python:3.12
 
 WORKDIR /app
 
+ENV LANG C.UTF-8
+
 # 更换为阿里云源并安装系统依赖
 RUN echo "deb https://mirrors.aliyun.com/debian/ bullseye main contrib non-free" > /etc/apt/sources.list && \
     echo "deb https://mirrors.aliyun.com/debian/ bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
@@ -20,7 +22,7 @@ COPY requirements.txt .
 RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir -r requirements.txt
 
 # 复制应用代码
-COPY . .
+# COPY . .
 
 # 启动命令
 CMD ["sh", "deploy_local.sh"]
