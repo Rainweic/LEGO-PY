@@ -328,5 +328,43 @@ async def get_summary():
     return response
 
 
+@app.route('/list_files', methods=['GET'])
+def list_files():
+    try:
+        # 获取请求参数中的路径，默认为根目录
+        path = request.args.get('path', '/')
+        
+        # 确保路径安全，防止目录遍历攻击
+        abs_path = os.path.abspath(path)
+        if not abs_path.startswith(os.path.abspath('/')):
+            return jsonify({"error": "Invalid path"}), 403
+            
+        items = []
+        if os.path.exists(abs_path):
+            for item in os.listdir(abs_path):
+                item_path = os.path.join(abs_path, item)
+                items.append({
+                    "name": item,
+                    "path": item_path,
+                    "type": "directory" if os.path.isdir(item_path) else "file",
+                    "size": os.path.getsize(item_path) if os.path.isfile(item_path) else None,
+                    "modified": os.path.getmtime(item_path)
+                })
+        
+        response = jsonify({
+            "current_path": abs_path,
+            "items": items
+        })
+        
+        origin = request.headers.get('Origin')
+        if origin in origins:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+        
+    except Exception as e:
+        return handle_error(e)
+
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=4242)
