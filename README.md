@@ -77,7 +77,7 @@ python parser_yaml.py -p ./demo2.yaml
 - ✅预测组件运行失败
 
 P0
-...
+- XGB特征重要性支持选择重要性类型
 
 P1
 - 运行节点后设置状态为waiting，随后在running
