@@ -87,13 +87,16 @@ class LabelEncoder(CustomStage):
             "children": []
         }
         
-        # 对每一列进行编码
+        # 收集所有需要编码的列的 CASE WHEN 语句
+        case_when_statements = []
+        columns_to_drop = []
+        column_renames = {}
+        
         for col in self.cols:
-
             # 检查列的数据类型
             col_type = lf.select(pl.col(col)).collect().dtypes[0]
             
-            # 如果不是数值类型,跳过该列
+            # 如果不是字符串类型,跳过该列
             if not isinstance(col_type, pl.String):
                 self.logger.warning(f"列 {col} 不是String类型,跳过label encoding")
                 continue
@@ -113,35 +116,46 @@ class LabelEncoder(CustomStage):
             }
             mapping_data["children"].append(col_mapping)
             
-            # 构建CASE WHEN语句，添加ELSE子句处理空值和未匹配值
+            # 构建CASE WHEN语句
             case_when = " ".join([f"WHEN {col} == '{k}' THEN {v}" for k, v in mapping.items()])
             
-            # 应用编码
+            # 根据是否替换原始列来构建SQL片段
             if self.replace_original:
-                # 如果替换原始列,直接覆盖原列
-                sql = f"""
-                SELECT 
-                    *, 
-                    (CASE {case_when} ELSE -1 END) as tmp_{col}_encoded 
-                FROM self
-                """
-                lf = lf.lazy().sql(sql).drop(col).rename({f"tmp_{col}_encoded": col})
+                encoded_col_name = f"tmp_{col}_encoded"
+                columns_to_drop.append(col)
+                column_renames[encoded_col_name] = col
             else:
-                # 保留原始列,添加新的编码列
-                sql = f"""
-                SELECT 
-                    *,
-                    (CASE {case_when} ELSE -1 END) as {col}_encoded 
-                FROM self
-                """
-                lf = lf.lazy().sql(sql)
+                encoded_col_name = f"{col}_encoded"
             
-            self.logger.info(f"Encoding column {col} with SQL: {sql}")
+            case_when_statements.append(
+                f"(CASE {case_when} ELSE -1 END) as {encoded_col_name}"
+            )
+        
+        # 如果没有需要编码的列，直接返回原始数据
+        if not case_when_statements:
+            return lf
+            
+        # 构建完整的SQL语句
+        sql = f"""
+        SELECT 
+            *,
+            {', '.join(case_when_statements)}
+        FROM self
+        """
+        
+        self.logger.info(f"Encoding columns with SQL: {sql}")
+        
+        # 执行SQL并处理列的替换
+        lf = lf.lazy().sql(sql)
+        if columns_to_drop:
+            lf = lf.drop(columns_to_drop)
+        if column_renames:
+            lf = lf.rename(column_renames)
             
         # Summary
         tree = (
             Tree(init_opts=opts.InitOpts(theme=ThemeType.LIGHT))
-            .add("", mapping_data, collapse_interval=2)
+            .add("", [mapping_data], collapse_interval=2)
             .set_global_opts(title_opts=opts.TitleOpts(title="特征值映射关系"))
             .dump_options_with_quotes()
         )
