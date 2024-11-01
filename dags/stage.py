@@ -127,6 +127,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
         self._show_collect = False
         self.logger = logging
         self.model = None
+        """summary需要长这样: [{"图表1": 图表.dump_options_with_quotes()}, {"图表2": 图表.dump_options_with_quotes()}]"""
         self.summary = []
 
     def set_job_id(self, job_id):
