@@ -105,7 +105,7 @@ class XGBImportance(XGB):
             # 上一个模型复用
             return train_df.lazy().select(model_xgb_f_importance), model_xgb_f_importance
 
-        model = self.train(train_df, None)
+        model = self.train(train_df, None)['model']
 
         # 绘图
         f_i_bar_list = []
