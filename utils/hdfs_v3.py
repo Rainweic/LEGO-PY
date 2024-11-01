@@ -22,13 +22,13 @@ try:
     if os.path.isfile(cmd_local_file):
         print(source_cmd_local)
         result = subprocess.run(
-            source_cmd_local, shell=True, check=True, stdout=subprocess.PIPE
+            source_cmd_local, shell=True, check=True, stdout=subprocess.PIPE, executable='/bin/bash'
         )
         output = result.stdout.decode("utf-8")
     else:
         print(source_cmd_yarn)
         result = subprocess.run(
-            source_cmd_yarn, shell=True, check=True, stdout=subprocess.PIPE
+            source_cmd_yarn, shell=True, check=True, stdout=subprocess.PIPE, executable='/bin/bash'
         )
         output = result.stdout.decode("utf-8")
 
