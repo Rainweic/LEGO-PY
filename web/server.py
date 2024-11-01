@@ -152,30 +152,36 @@ def get_stage_status():
 
 @app.route('/get_cpm_log')
 async def get_cpm_log():
-
     job_id = request.args.get("job_id")
     stage_name = request.args.get("node_id")
     logging.info(f"job id: {job_id}, stage name: {stage_name}")
 
     try:
-        log_path = os.path.join(os.path.dirname(__file__), "../cache", job_id, "logs", f"{stage_name}.log")
-        if not os.path.exists(log_path):
-            msg = f"日志文件不存在: {log_path}"
-            logging.info(msg)
-            response = jsonify({"log": msg})
-        
-        else:
-            with open(log_path, "r") as f:
-                log_content = f.read()
+        # 构建日志文件路径
+        base_path = os.path.join(os.path.dirname(__file__), "../cache", job_id, "logs")
+        stage_log_path = os.path.join(base_path, f"{stage_name}.log")
+        pipeline_log_path = os.path.join(base_path, "pipeline.log")
 
-            logging.info(f"日志内容: {log_content[:100]}")
-        
-            response = jsonify({"log": log_content})
+        # 读取日志内容
+        if os.path.exists(stage_log_path):
+            with open(stage_log_path, "r") as f:
+                log_content = f.read()
+        elif os.path.exists(pipeline_log_path):
+            with open(pipeline_log_path, "r") as f:
+                log_content = f.read()
+        else:
+            msg = f"Stage、Pipeline日志文件均不存在, 路径：{base_path}"
+            logging.info(msg)
+            log_content = msg
+
+        # 构建响应
+        response = jsonify({"log": log_content})
         origin = request.headers.get('Origin')
         if origin in origins:
             response.headers.add("Access-Control-Allow-Origin", origin)
         response.headers.add("Access-Control-Allow-Credentials", "true")
         return response
+
     except Exception as e:
         return handle_error(e)
     
