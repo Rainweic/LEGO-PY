@@ -93,15 +93,19 @@ class XGB(BaseStage):
 class XGBImportance(XGB):
 
     def __init__(self, label_col: str=None, train_cols: list[str]=None, num_round=100, train_params: dict=base_params, topK: int=20,
-                 importance_type: str="gain"):
+                 importance_type: str="gain", reuse_cols: list[str]=None):
         super().__init__(label_col=label_col, train_cols=train_cols, num_round=num_round, train_params=train_params)
         self._n_outputs = 2
         self.topK = topK
         self.importance_type = importance_type
+        self.reuse_cols = reuse_cols
 
     def forward(self, train_df: pl.DataFrame, model_xgb_f_importance: list[str]=None):
 
         if model_xgb_f_importance:
+            if self.reuse_cols is not None:
+                model_xgb_f_importance.extend([col for col in self.reuse_cols if col not in model_xgb_f_importance])
+            self.logger.info(f"模型复用筛选的特征: {model_xgb_f_importance}")
             # 上一个模型复用
             return train_df.lazy().select(model_xgb_f_importance), model_xgb_f_importance
 
