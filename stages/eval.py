@@ -5,6 +5,7 @@ from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_prec
 from pyecharts import options as opts
 from pyecharts.charts import Grid, Liquid
 from pyecharts.commons.utils import JsCode
+import numpy as np
 
 from dags.stage import CustomStage
 
@@ -14,6 +15,31 @@ class BinaryEval(CustomStage):
     def __init__(self, y):
         super().__init__(n_outputs=1)
         self.y = y
+
+    def downsample_curve_data(self, x_data, y_data, n_points=100):
+        """对曲线数据进行降采样
+        
+        Args:
+            x_data: x轴数据
+            y_data: y轴数据 
+            n_points: 目标采样点数
+        """
+        if len(x_data) <= n_points:
+            return x_data, y_data
+            
+        # 计算采样间隔
+        step = len(x_data) // n_points
+        
+        # 降采样
+        x_sampled = x_data[::step]
+        y_sampled = y_data[::step]
+        
+        # 确保包含首尾点
+        if x_data[-1] not in x_sampled:
+            x_sampled = np.append(x_sampled, x_data[-1])
+            y_sampled = np.append(y_sampled, y_data[-1])
+            
+        return x_sampled, y_sampled
 
     def forward(self, lf: pl.LazyFrame):
         
@@ -33,14 +59,15 @@ class BinaryEval(CustomStage):
         ks = max(abs(tpr - fpr))
 
         # ROC曲线
+        fpr_sampled, tpr_sampled = self.downsample_curve_data(fpr, tpr)
         roc_line = (
             Line()
             .add_xaxis(
-                [round(float(f), 2) for f in fpr]
+                [round(float(f), 2) for f in fpr_sampled]
             )
             .add_yaxis(
                 "ROC曲线", 
-                [round(float(t), 2) for t in tpr],
+                [round(float(t), 2) for t in tpr_sampled],
                 symbol="circle",
                 symbol_size=4,
                 is_smooth=True,
@@ -92,14 +119,15 @@ class BinaryEval(CustomStage):
         )
 
         # PR曲线 
+        recall_sampled, precision_sampled = self.downsample_curve_data(recall, precision)
         pr_line = (
             Line()
             .add_xaxis(
-                [round(float(r), 4) for r in recall]
+                [round(float(r), 4) for r in recall_sampled]
             )
             .add_yaxis(
                 "PR曲线", 
-                [round(float(p), 4) for p in precision],
+                [round(float(p), 4) for p in precision_sampled],
                 symbol="circle",
                 symbol_size=4,
                 is_smooth=True,
@@ -144,14 +172,15 @@ class BinaryEval(CustomStage):
         )
 
         # 阈值-召回率曲线
+        thresholds_sampled, tpr_sampled = self.downsample_curve_data(thresholds, tpr)
         recall_line = (
             Line()
             .add_xaxis(
-                [round(float(t), 4) for t in thresholds]
+                [round(float(t), 4) for t in thresholds_sampled]
             )
             .add_yaxis(
                 "召回率", 
-                [round(float(r), 4) for r in tpr],
+                [round(float(r), 4) for r in tpr_sampled],
                 symbol="circle",
                 symbol_size=4,
                 is_smooth=True,
