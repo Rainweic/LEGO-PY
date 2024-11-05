@@ -29,39 +29,167 @@ class BinaryEval(CustomStage):
         precision, recall, pr_thresholds = precision_recall_curve(y_true, y_score)
         pr_auc = average_precision_score(y_true, y_score)
 
+        # 计算KS值
+        ks = max(abs(tpr - fpr))
+
         # ROC曲线
         roc_line = (
             Line()
-            .add_xaxis([float(f) for f in fpr])
-            .add_yaxis("ROC曲线", [float(t) for t in tpr])
+            .add_xaxis(
+                [round(float(f), 2) for f in fpr]
+            )
+            .add_yaxis(
+                "ROC曲线", 
+                [round(float(t), 2) for t in tpr],
+                symbol="circle",
+                symbol_size=4,
+                is_smooth=True,
+                linestyle_opts=opts.LineStyleOpts(
+                    width=3  # 设置线条粗细
+                ),
+                label_opts=opts.LabelOpts(
+                    is_show=False  # 默认不显示标签
+                ),
+                tooltip_opts=opts.TooltipOpts(
+                    trigger="axis",  # 坐标轴触发
+                    axis_pointer_type="cross",  # 十字准星指示器
+                    formatter="""
+                        假阳性率: {0}<br/>
+                        真阳性率: {1}
+                    """.format("{c0}", "{c1}")
+                )
+            )
             .set_global_opts(
                 title_opts=opts.TitleOpts(title=f"ROC曲线 (AUC={roc_auc:.3f})"),
-                xaxis_opts=opts.AxisOpts(name="假阳性率"),
-                yaxis_opts=opts.AxisOpts(name="真阳性率")
+                xaxis_opts=opts.AxisOpts(
+                    name="假阳性率",
+                    type_="value",
+                    min_=0,
+                    max_=1
+                ),
+                yaxis_opts=opts.AxisOpts(
+                    name="真阳性率",
+                    type_="value",
+                    min_=0,
+                    max_=1
+                ),
+                tooltip_opts=opts.TooltipOpts(
+                    trigger="axis",
+                    formatter="{c}"
+                ),
+            )
+        )
+        # 使用 Grid 调整布局
+        roc_grid = Grid()
+        roc_grid.add(
+            roc_line,
+            grid_opts=opts.GridOpts(
+                pos_left="15%",
+                pos_right="15%",
+                pos_top="15%",
+                pos_bottom="15%"
             )
         )
 
         # PR曲线 
         pr_line = (
             Line()
-            .add_xaxis([float(r) for r in recall])
-            .add_yaxis("PR曲线", [float(p) for p in precision])
+            .add_xaxis(
+                [round(float(r), 4) for r in recall]
+            )
+            .add_yaxis(
+                "PR曲线", 
+                [round(float(p), 4) for p in precision],
+                symbol="circle",
+                symbol_size=4,
+                is_smooth=True,
+                linestyle_opts=opts.LineStyleOpts(
+                    width=3
+                ),
+                label_opts=opts.LabelOpts(
+                    is_show=False
+                )
+            )
             .set_global_opts(
                 title_opts=opts.TitleOpts(title=f"PR曲线 (AUC={pr_auc:.3f})"),
-                xaxis_opts=opts.AxisOpts(name="召回率"),
-                yaxis_opts=opts.AxisOpts(name="精确率")
+                xaxis_opts=opts.AxisOpts(
+                    name="召回率",
+                    type_="value",
+                    min_=0,
+                    max_=1
+                ),
+                yaxis_opts=opts.AxisOpts(
+                    name="精确率",
+                    type_="value",
+                    min_=0,
+                    max_=1
+                ),
+                tooltip_opts=opts.TooltipOpts(
+                    trigger="axis",  # 坐标轴触发
+                    axis_pointer_type="cross",  # 十字准星指示器
+                )
+            )
+        )
+
+        # 使用 Grid 调整 PR 曲线布局
+        pr_grid = Grid()
+        pr_grid.add(
+            pr_line,
+            grid_opts=opts.GridOpts(
+                pos_left="15%",
+                pos_right="15%",
+                pos_top="15%",
+                pos_bottom="15%"
             )
         )
 
         # 阈值-召回率曲线
         recall_line = (
             Line()
-            .add_xaxis([float(t) for t in thresholds])
-            .add_yaxis("召回率", [float(r) for r in tpr])
+            .add_xaxis(
+                [round(float(t), 4) for t in thresholds]
+            )
+            .add_yaxis(
+                "召回率", 
+                [round(float(r), 4) for r in tpr],
+                symbol="circle",
+                symbol_size=4,
+                is_smooth=True,
+                linestyle_opts=opts.LineStyleOpts(
+                    width=3
+                ),
+                label_opts=opts.LabelOpts(
+                    is_show=False
+                )
+            )
             .set_global_opts(
                 title_opts=opts.TitleOpts(title="阈值-召回率曲线"),
-                xaxis_opts=opts.AxisOpts(name="阈值"),
-                yaxis_opts=opts.AxisOpts(name="召回率")
+                xaxis_opts=opts.AxisOpts(
+                    name="阈值",
+                    type_="value"
+                ),
+                yaxis_opts=opts.AxisOpts(
+                    name="召回率",
+                    type_="value",
+                    min_=0,
+                    max_=1
+                ),
+                tooltip_opts=opts.TooltipOpts(
+                    trigger="axis",  # 坐标轴触发
+                    axis_pointer_type="cross",  # 十字准星指示器
+                )
+            )
+        )
+
+        # 使用 Grid 调整阈值-召回率曲线布局
+        recall_grid = Grid()
+        recall_grid.add(
+            recall_line,
+            grid_opts=opts.GridOpts(
+                pos_left="15%",
+                pos_right="15%",
+                pos_top="15%",
+                pos_bottom="15%"
             )
         )
 
@@ -71,6 +199,14 @@ class BinaryEval(CustomStage):
         fn = ((y_true == 1) & (y_pred == 0)).sum()
         tp = ((y_true == 1) & (y_pred == 1)).sum()
 
+        # 准备热力图数据
+        value = [
+            [0, 0, int(tn)],  # [x, y, value]
+            [1, 0, int(fp)],
+            [0, 1, int(fn)],
+            [1, 1, int(tp)]
+        ]
+
         # 混淆矩阵热力图
         confusion_heatmap = (
             HeatMap()
@@ -78,13 +214,28 @@ class BinaryEval(CustomStage):
             .add_yaxis(
                 "实际类别",
                 ["实际负例", "实际正例"],
-                [[0, 0, tn], [0, 1, fp], [1, 0, fn], [1, 1, tp]]
+                value,
+                label_opts=opts.LabelOpts(
+                    position="middle",     # 在格子中间显示数值
+                    font_size=16,         # 设置字体大小
+                    font_weight="bold"    # 设置字体粗细
+                )
             )
             .set_global_opts(
                 title_opts=opts.TitleOpts(title="混淆矩阵"),
-                visualmap_opts=opts.VisualMapOpts(min_=0),
-                xaxis_opts=opts.AxisOpts(type_="category"),
-                yaxis_opts=opts.AxisOpts(type_="category")
+                visualmap_opts=opts.VisualMapOpts(),
+            )
+        )
+
+        # 使用 Grid 调整混淆矩阵布局
+        confusion_grid = Grid()
+        confusion_grid.add(
+            confusion_heatmap,
+            grid_opts=opts.GridOpts(
+                pos_left="15%",
+                pos_right="20%",  # 留出右边的空间给颜色条
+                pos_top="15%",
+                pos_bottom="15%"
             )
         )
 
@@ -96,7 +247,7 @@ class BinaryEval(CustomStage):
         # 准确率
         accuracy_liquid = (
             Liquid()
-                .add("准确率", [accuracy], center=["20%", "50%"], 
+                .add("准确率", [accuracy], center=["16.67%", "50%"], 
                     label_opts=opts.LabelOpts(
                         font_size=20,
                         position="inside",
@@ -108,8 +259,8 @@ class BinaryEval(CustomStage):
                 .set_global_opts(
                     title_opts=opts.TitleOpts(
                         title="准确率",
-                        pos_left="20%",  
-                        pos_bottom="5%",
+                        pos_left="16.67%",  
+                        pos_bottom="10%",
                         title_textstyle_opts=opts.TextStyleOpts(
                             font_size=14,
                             color="#000"
@@ -121,14 +272,9 @@ class BinaryEval(CustomStage):
         # 精确率
         precision_liquid = (
             Liquid()
-                .add("精确率", [precision_score], center=["40%", "50%"],
+                .add("精确率", [precision_score], center=["33.33%", "50%"],
                     label_opts=opts.LabelOpts(
                         font_size=20,
-                        # formatter=JsCode(
-                        #     """function (param) {
-                        #             return (Math.floor(param.value * 10000) / 100) + '%';
-                        #         }"""
-                        # ),
                         position="inside",
                     ),
                     color=["#E1BEE7", "#CE93D8", "#BA68C8", "#AB47BC"],
@@ -138,8 +284,8 @@ class BinaryEval(CustomStage):
                 .set_global_opts(
                     title_opts=opts.TitleOpts(
                         title="精确率",
-                        pos_left="40%",  
-                        pos_bottom="5%",
+                        pos_left="33.33%",  
+                        pos_bottom="10%",
                         title_textstyle_opts=opts.TextStyleOpts(
                             font_size=14,
                             color="#000"
@@ -151,14 +297,9 @@ class BinaryEval(CustomStage):
         # 召回率
         recall_liquid = (
             Liquid()
-                .add("召回率", [recall_score], center=["60%", "50%"],
+                .add("召回率", [recall_score], center=["50%", "50%"],
                     label_opts=opts.LabelOpts(
                         font_size=20,
-                        # formatter=JsCode(
-                        #     """function (param) {
-                        #             return (Math.floor(param.value * 10000) / 100) + '%';
-                        #         }"""
-                        # ),
                         position="inside",
                     ),
                     color=["#C8E6C9", "#A5D6A7", "#81C784", "#66BB6A"],
@@ -168,8 +309,8 @@ class BinaryEval(CustomStage):
                 .set_global_opts(
                     title_opts=opts.TitleOpts(
                         title="召回率",
-                        pos_left="60%",  
-                        pos_bottom="5%",
+                        pos_left="50%",  
+                        pos_bottom="10%",
                         title_textstyle_opts=opts.TextStyleOpts(
                             font_size=14,
                             color="#000"
@@ -181,14 +322,9 @@ class BinaryEval(CustomStage):
         # F1分数
         f1_liquid = (
             Liquid()
-                .add("F1分数", [f1], center=["80%", "50%"],
+                .add("F1分数", [f1], center=["66.67%", "50%"],
                     label_opts=opts.LabelOpts(
                         font_size=20,
-                        # formatter=JsCode(
-                        #     """function (param) {
-                        #             return (Math.floor(param.value * 10000) / 100) + '%';
-                        #         }"""
-                        # ),
                         position="inside",
                     ),
                     color=["#FFE0B2", "#FFCC80", "#FFB74D", "#FFA726"],
@@ -198,8 +334,8 @@ class BinaryEval(CustomStage):
                 .set_global_opts(
                     title_opts=opts.TitleOpts(
                         title="F1分数",
-                        pos_left="80%",  
-                        pos_bottom="5%", 
+                        pos_left="66.67%",  
+                        pos_bottom="10%",
                         title_textstyle_opts=opts.TextStyleOpts(
                             font_size=14,
                             color="#000"
@@ -208,29 +344,58 @@ class BinaryEval(CustomStage):
                 )
         )
 
-        # 使用 Grid 类将四个图表布局在一个画布上
+        # KS值
+        ks_liquid = (
+            Liquid()
+                .add("KS值", [ks], center=["83.33%", "50%"],
+                    label_opts=opts.LabelOpts(
+                        font_size=20,
+                        position="inside",
+                    ),
+                    color=["#BBDEFB", "#90CAF9", "#64B5F6", "#42A5F5"],
+                    background_color="#E3F2FD",
+                    outline_itemstyle_opts=opts.ItemStyleOpts(border_color="#E3F2FD", border_width=3)
+                )
+                .set_global_opts(
+                    title_opts=opts.TitleOpts(
+                        title="KS值",
+                        pos_left="83.33%",  
+                        pos_bottom="10%",
+                        title_textstyle_opts=opts.TextStyleOpts(
+                            font_size=14,
+                            color="#000"
+                        )
+                    )
+                )
+        )
+
+        # 使用 Grid 类将五个图表布局在一个画布上
         base_metrics = (
             Grid(init_opts=opts.InitOpts())
                 .add(accuracy_liquid, grid_opts=opts.GridOpts(
-                    pos_left="5%",     # 左边留5%边距
-                    pos_right="77%"    # 右侧留出位置给第二个图表
+                    pos_left="5%",     
+                    pos_right="81%"    
                 ))
                 .add(precision_liquid, grid_opts=opts.GridOpts(
-                    pos_left="28%",    # 从28%位置开始
-                    pos_right="54%"    # 留出位置给第三个图表
+                    pos_left="21.67%",    
+                    pos_right="64.33%"    
                 ))
                 .add(recall_liquid, grid_opts=opts.GridOpts(
-                    pos_left="51%",    # 从51%位置开始
-                    pos_right="31%"    # 留出位置给第四个图表
+                    pos_left="38.33%",    
+                    pos_right="47.67%"    
                 ))
                 .add(f1_liquid, grid_opts=opts.GridOpts(
-                    pos_left="74%",    # 从74%位置开始
-                    pos_right="5%"     # 右边留5%边距
+                    pos_left="55%",    
+                    pos_right="31%"    
+                ))
+                .add(ks_liquid, grid_opts=opts.GridOpts(
+                    pos_left="71.67%",    
+                    pos_right="14.33%"    
                 ))
         )
 
         # 渲染图表
-        base_metrics.render("base_metrics.html")
+        # base_metrics.render("base_metrics.html")
 
         metrics = {
             "accuracy": accuracy,
@@ -239,6 +404,7 @@ class BinaryEval(CustomStage):
             "f1": f1,
             "roc_auc": roc_auc,
             "pr_auc": pr_auc,
+            "ks": ks,
             "confusion_matrix": {
                 "tn": int(tn),
                 "fp": int(fp), 
@@ -250,10 +416,10 @@ class BinaryEval(CustomStage):
 
         self.summary.extend([
             {"基础评估指标": base_metrics.dump_options_with_quotes()},
-            {"roc": roc_line.dump_options_with_quotes()},
-            {"pr": pr_line.dump_options_with_quotes()},
-            {"recall": recall_line.dump_options_with_quotes()},
-            {"confusion": confusion_heatmap.dump_options_with_quotes()},
+            {"ROC曲线": roc_grid.dump_options_with_quotes()},
+            {"PR曲线": pr_grid.dump_options_with_quotes()},
+            {"Recall曲线": recall_grid.dump_options_with_quotes()},
+            {"混淆矩阵": confusion_grid.dump_options_with_quotes()},
         ])
 
         self.logger.info(f"评估指标: {metrics}")
