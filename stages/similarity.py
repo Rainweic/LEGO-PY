@@ -20,7 +20,7 @@ class CustomerSimilarityStage(CustomStage):
         n_threads: int = 4,       # 并行线程数
         cache_size: int = 128     # LRU缓存大小
     ):
-        super().__init__(n_outputs=1)
+        super().__init__(n_outputs=0)
         self.feature_cols = feature_cols
         self.num_perm = num_perm
         self.sample_size = sample_size
@@ -184,8 +184,6 @@ class CustomerSimilarityStage(CustomStage):
         liquid.options.get('series')[0].update(
             itemStyle_opts=opts.ItemStyleOpts(
                 opacity=0.8,
-                shadow_blur=10,
-                shadow_color="rgba(0, 0, 0, 0.4)"
             ),
             outline_border_distance=2,
             outline_item_style_opts=opts.ItemStyleOpts(
@@ -238,7 +236,6 @@ class CustomerSimilarityStage(CustomStage):
         # 添加图表到summary
         self.summary = [chart_options]
         
-        self.logger.info(f"相似度计算完成: {similarity:.4f}")
-        
-        return result
+        self.logger.info(f"相似度计算完成: {result}")
 
+        return result
