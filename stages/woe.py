@@ -168,7 +168,7 @@ class WOE(CustomStage):
 
         for col, summary in woe_summary.items():
             # 准备数据
-            bin_ranges = [stat['bin_range'] for stat in summary['bin_stats']]
+            bin_ranges = [f"{stat['bin_id']}:{stat['bin_range']}" for stat in summary['bin_stats']]
             counts = [stat['count'] for stat in summary['bin_stats']]
             woe_values = [stat['woe'] for stat in summary['bin_stats']]
             target_rates = [stat['target_rate'] * 100 for stat in summary['bin_stats']]
@@ -187,7 +187,7 @@ class WOE(CustomStage):
                 "样本数",
                 counts,
                 yaxis_index=0,
-                label_opts=opts.LabelOpts(is_show=False),  # 隐藏数据标签
+                label_opts=opts.LabelOpts(position='top', color='black'),  # 隐藏数据标签
                 itemstyle_opts=opts.ItemStyleOpts(opacity=0.3, border_radius=1)  # 设置柱状图透明度
             )
             
@@ -201,7 +201,8 @@ class WOE(CustomStage):
                 symbol_size=8,  # 增大点的大小
                 is_symbol_show=True,  # 显示数据点
                 label_opts=opts.LabelOpts(is_show=False),
-                itemstyle_opts=opts.ItemStyleOpts(opacity=1, border_width=5)
+                itemstyle_opts=opts.LineStyleOpts(width=3),
+                z_level=2
             )
             
             # 添加目标率折线图
@@ -214,7 +215,8 @@ class WOE(CustomStage):
                 symbol_size=8,
                 is_symbol_show=True,
                 label_opts=opts.LabelOpts(is_show=False),
-                itemstyle_opts=opts.ItemStyleOpts(opacity=1, border_width=5)
+                itemstyle_opts=opts.LineStyleOpts(width=3),
+                z_level=2
             )
             
             # 组合图表
