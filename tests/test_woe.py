@@ -88,7 +88,7 @@ def test_remove_original_columns(sample_data):
     woe = WOE(
         cols=['age', 'income'],
         target_col='target',
-        recover_ori_col=False
+        save_ori_col=False
     )
     
     result = woe.forward(sample_data)

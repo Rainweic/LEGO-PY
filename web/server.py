@@ -14,6 +14,7 @@ import logging
 import asyncio
 import traceback
 import polars as pl
+import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -215,11 +216,13 @@ async def get_output():
                 # 计算起始行和结束行
                 start_row = page_idx * n_rows_one_page
                 
-                # 使用 slice 来获取指定范围的数据
-                data = lazy_df.slice(start_row, n_rows_one_page).collect()
-                
-                # 添加行号列
-                data = data.with_row_count("行号", offset=start_row + 1)
+                data = (
+                    lazy_df
+                        .slice(start_row, n_rows_one_page)
+                        .select(pl.all().fill_nan(None))
+                        .with_row_count("行号", offset=start_row + 1)
+                        .collect()
+                )
                 
                 cols = [{"title": col, "dataIndex": col, "key": col, "width": 75 if col == "行号" else 150} for col in data.columns]
                 data_dict = data.to_dicts()

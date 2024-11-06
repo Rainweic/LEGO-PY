@@ -42,7 +42,7 @@ class WOE(CustomStage):
         chi_merge_threshold (float, 默认=0.1): 
             卡方分箱时的合并阈值，较大的值会产生更少的分箱
         
-        recover_ori_col (bool, 默认=True):
+        save_ori_col (bool, 默认=True):
             是否在结果中保留原始特征列
     
     返回:
@@ -119,7 +119,7 @@ class WOE(CustomStage):
         min_samples: float = 0.05,
         max_bins: int = 50,
         chi_merge_threshold: float = 0.1,
-        recover_ori_col: bool = True
+        save_ori_col: bool = True
     ):
         super().__init__(n_outputs=1)
         self.cols = cols if isinstance(cols, list) else [cols]
@@ -132,7 +132,7 @@ class WOE(CustomStage):
             'chi_merge_threshold': chi_merge_threshold,
         }
         self.custom_bins = bins or {}
-        self.recover_ori_col = recover_ori_col
+        self.save_ori_col = save_ori_col
 
         if not len(self.cols) and self.custom_bins:
             self.cols = list(self.custom_bins.keys())
@@ -229,7 +229,7 @@ class WOE(CustomStage):
             lf = lf.with_columns([bin_expr, woe_expr])
             
             # 如果不保留原始列，则删除
-            if not self.recover_ori_col:
+            if not self.save_ori_col:
                 lf = lf.drop(col)
         
         return lf
