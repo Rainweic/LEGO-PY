@@ -336,8 +336,11 @@ class WOE(CustomStage):
                         'woe': woe_map[bin_label],
                         'count': binner.binning_result.bin_stats[bin_label]['count'],
                         'target_count': binner.binning_result.bin_stats[bin_label]['target_count'],
-                        'target_rate': binner.binning_result.bin_stats[bin_label]['target_count'] / 
-                                     binner.binning_result.bin_stats[bin_label]['count'],
+                        'target_rate': (lambda count, target_count: 
+                            target_count / count if count != 0 else 0)(
+                                binner.binning_result.bin_stats[bin_label]['count'],
+                                binner.binning_result.bin_stats[bin_label]['target_count']
+                            ),
                         'min': binner.binning_result.bin_stats[bin_label]['min'],
                         'max': binner.binning_result.bin_stats[bin_label]['max'],
                         'mean': binner.binning_result.bin_stats[bin_label]['mean']
