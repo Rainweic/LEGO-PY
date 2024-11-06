@@ -243,7 +243,7 @@ class Binning:
             bin_label = f"[{bins[bin_idx-1]:.2f}, {bins[bin_idx]:.2f})"
             
             stats = {
-                'count': sum(mask),
+                'count': float(sum(mask)),
                 'min': float(values[mask].min()) if any(mask) else None,
                 'max': float(values[mask].max()) if any(mask) else None,
                 'mean': float(values[mask].mean()) if any(mask) else None,
@@ -316,7 +316,7 @@ class Binning:
             bin_indices[i] = label
         
         self.binning_result = BinningResult(
-            bins=bins,
+            bins=[float(i) for i in bins],
             bin_labels=bin_labels,
             bin_stats=bin_stats,
             bin_indices=bin_indices

@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Optional
 from dags.stage import CustomStage
 from stages.utils.binning import Binning
+from pyecharts.commons.utils import JsCode
 
 
 class WOE(CustomStage):
@@ -27,7 +28,7 @@ class WOE(CustomStage):
             - 'mdlp': 最小描述长度分箱
         
         n_bins (int, 默认=10): 
-            分箱数量，仅在使用等宽、等频、kmeans分箱时有效
+            分箱数量，仅在使用等、等频、kmeans分箱时有效
         
         bins (Optional[Dict[str, List[float]]], 默认=None): 
             自定义分箱点，格式为 {列名: [分箱点列表]}
@@ -119,7 +120,8 @@ class WOE(CustomStage):
         min_samples: float = 0.05,
         max_bins: int = 50,
         chi_merge_threshold: float = 0.1,
-        save_ori_col: bool = True
+        save_ori_col: bool = True,
+        save_bin_id_col: bool = False
     ):
         super().__init__(n_outputs=1)
         self.cols = cols if isinstance(cols, list) else [cols]
@@ -133,6 +135,7 @@ class WOE(CustomStage):
         }
         self.custom_bins = bins or {}
         self.save_ori_col = save_ori_col
+        self.save_bin_id_col = save_bin_id_col
 
         if not len(self.cols) and self.custom_bins:
             self.cols = list(self.custom_bins.keys())
@@ -155,6 +158,119 @@ class WOE(CustomStage):
             woe_dict[bin_label] = float(woe)
             
         return woe_dict
+
+    def _plot_woe_summary(self, woe_summary: Dict):
+        """使用pyecharts可视化WOE分箱结果"""
+        from pyecharts import options as opts
+        from pyecharts.charts import Bar, Line
+        
+        all_summary = []
+
+        for col, summary in woe_summary.items():
+            # 准备数据
+            bin_ranges = [stat['bin_range'] for stat in summary['bin_stats']]
+            counts = [stat['count'] for stat in summary['bin_stats']]
+            woe_values = [stat['woe'] for stat in summary['bin_stats']]
+            target_rates = [stat['target_rate'] * 100 for stat in summary['bin_stats']]
+            
+            # 创建图表
+            bar = Bar(
+                init_opts=opts.InitOpts(
+                    width="900px",  # 减小图表宽度
+                    height="500px"
+                )
+            )
+            bar.add_xaxis(bin_ranges)
+            
+            # 添加样本数柱状图和折线图
+            bar.add_yaxis(
+                "样本数",
+                counts,
+                yaxis_index=0,
+                label_opts=opts.LabelOpts(is_show=False),  # 隐藏数据标签
+                itemstyle_opts=opts.ItemStyleOpts(opacity=0.3, border_radius=1)  # 设置柱状图透明度
+            )
+            
+            # 添加WOE值折线图
+            line1 = Line()
+            line1.add_xaxis(bin_ranges)
+            line1.add_yaxis(
+                "WOE值",
+                woe_values,
+                yaxis_index=1,
+                symbol_size=8,  # 增大点的大小
+                is_symbol_show=True,  # 显示数据点
+                label_opts=opts.LabelOpts(is_show=False),
+                itemstyle_opts=opts.ItemStyleOpts(opacity=1, border_width=5)
+            )
+            
+            # 添加目标率折线图
+            line2 = Line()
+            line2.add_xaxis(bin_ranges)
+            line2.add_yaxis(
+                "目标率(%) [label为1数量/分箱样本量]",
+                target_rates,
+                yaxis_index=2,
+                symbol_size=8,
+                is_symbol_show=True,
+                label_opts=opts.LabelOpts(is_show=False),
+                itemstyle_opts=opts.ItemStyleOpts(opacity=1, border_width=5)
+            )
+            
+            # 组合图表
+            bar.overlap(line1)
+            bar.overlap(line2)
+            
+            # 设置全局配置
+            bar.set_global_opts(
+                title_opts=opts.TitleOpts(
+                    subtitle=f"分箱数: {len(bin_ranges)}\n总样本数: {sum(counts)}"
+                ),
+                xaxis_opts=opts.AxisOpts(
+                    type_="category",
+                    axislabel_opts=opts.LabelOpts(
+                        rotate=45,
+                        interval=0,  # 显示所有标签
+                        margin=8
+                    )
+                ),
+                yaxis_opts=opts.AxisOpts(
+                    name="样本数",
+                    position="left",
+                    name_gap=35,  # 增加名称与轴的距离
+                    splitline_opts=opts.SplitLineOpts(is_show=True)
+                ),
+                datazoom_opts=[
+                    opts.DataZoomOpts(type_="slider", range_start=0, range_end=100)
+                ],
+                legend_opts=opts.LegendOpts(
+                    pos_top="5%",
+                    pos_left="center"  # 将图例居中显示
+                )
+            )
+            
+            # 添加额外的y轴，增加offset间距
+            bar.extend_axis(
+                yaxis=opts.AxisOpts(
+                    name="WOE值",
+                    position="right",
+                    offset=0,  # 增加偏移量
+                    name_gap=15,
+                    splitline_opts=opts.SplitLineOpts(is_show=False)
+                )
+            )
+            bar.extend_axis(
+                yaxis=opts.AxisOpts(
+                    name="目标率(%)",
+                    position="right",
+                    offset=45,  # 进一步增加偏移量
+                    name_gap=35,
+                    splitline_opts=opts.SplitLineOpts(is_show=False)
+                )
+            )
+            
+            all_summary.append({f"{col}": bar.dump_options_with_quotes()})
+        return all_summary
 
     def forward(self, lf: pl.LazyFrame):
         """转换数据
@@ -187,7 +303,8 @@ class WOE(CustomStage):
             lf = lf.lazy()
         
         target = lf.select(pl.col(self.target_col)).collect().to_numpy().flatten()
-        
+        woe_summary = {}
+
         for col in self.cols:
             values = lf.select(pl.col(col)).collect().to_numpy().flatten()
             
@@ -206,16 +323,28 @@ class WOE(CustomStage):
             woe_map = self._calculate_woe(binner.binning_result.bin_stats)
             woe_values = [woe_map[label] for label in bin_labels]
             
-            # 创建分箱编号和WOE映射表达式
-            bin_expr = (
-                pl.col(col)
-                .replace(
-                    dict(zip(values, bin_indices))
-                )
-                .cast(pl.Int64)  # 确保分箱编号为整数类型
-                .alias(f"{col}_bin")
-            )
+            # 构建特征的分箱统计信息
+            woe_summary[col] = {
+                'bin_edges': binner.binning_result.bins,  # 分箱边界值列表
+                'bin_stats': [  # 每个分箱的详细统计
+                    {
+                        'bin_id': bin_id,
+                        'bin_label': bin_label,
+                        'bin_range': bin_label,  # 直接使用数学表达式形式，如 "[0.00, 10.00)"
+                        'woe': woe_map[bin_label],
+                        'count': binner.binning_result.bin_stats[bin_label]['count'],
+                        'target_count': binner.binning_result.bin_stats[bin_label]['target_count'],
+                        'target_rate': binner.binning_result.bin_stats[bin_label]['target_count'] / 
+                                     binner.binning_result.bin_stats[bin_label]['count'],
+                        'min': binner.binning_result.bin_stats[bin_label]['min'],
+                        'max': binner.binning_result.bin_stats[bin_label]['max'],
+                        'mean': binner.binning_result.bin_stats[bin_label]['mean']
+                    }
+                    for bin_id, bin_label in enumerate(binner.binning_result.bin_labels)
+                ]
+            }
             
+            # 创建WOE表达式
             woe_expr = (
                 pl.col(col)
                 .replace(
@@ -225,11 +354,28 @@ class WOE(CustomStage):
                 .alias(f"{col}_woe")
             )
             
-            # 添加新列
-            lf = lf.with_columns([bin_expr, woe_expr])
+            # 添加分箱编号、WOE列
+            if self.save_bin_id_col:
+                # 创建分箱编号表达式
+                bin_expr = (
+                    pl.col(col)
+                    .replace(
+                        dict(zip(values, bin_indices))
+                    )
+                    .cast(pl.Int64)  # 确保分箱编号为整数类型
+                    .alias(f"{col}_bin")
+                )
+                lf = lf.with_columns([bin_expr, woe_expr])
+            else:
+                lf = lf.with_columns([woe_expr])
             
             # 如果不保留原始列，则删除
             if not self.save_ori_col:
                 lf = lf.drop(col)
+        
+        # self.logger.info(woe_summary)
+
+        # 在原有日志输出后添加可视化
+        self.summary = self._plot_woe_summary(woe_summary)
         
         return lf

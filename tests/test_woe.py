@@ -34,7 +34,8 @@ def test_basic_functionality(sample_data):
         cols=['age', 'income'],
         target_col='target',
         binning_method='equal_freq',
-        n_bins=5
+        n_bins=5,
+        save_bin_id_col=True
     )
     
     result = woe.forward(sample_data)
@@ -58,7 +59,8 @@ def test_custom_bins(sample_data):
     woe = WOE(
         cols=['age'],
         target_col='target',
-        bins=custom_bins
+        bins=custom_bins,
+        save_bin_id_col=True
     )
     
     result = woe.forward(sample_data)
@@ -76,7 +78,8 @@ def test_different_binning_methods(sample_data):
             cols=['age'],
             target_col='target',
             binning_method=method,
-            n_bins=5
+            n_bins=5,
+            save_bin_id_col=True
         )
         
         result = woe.forward(sample_data)
@@ -88,7 +91,8 @@ def test_remove_original_columns(sample_data):
     woe = WOE(
         cols=['age', 'income'],
         target_col='target',
-        save_ori_col=False
+        save_ori_col=False,
+        save_bin_id_col=True
     )
     
     result = woe.forward(sample_data)
@@ -105,7 +109,8 @@ def test_single_column_input(sample_data):
     """测试单列输入"""
     woe = WOE(
         cols='age',  # 传入字符串而不是列表
-        target_col='target'
+        target_col='target',
+        save_bin_id_col=True
     )
     
     result = woe.forward(sample_data)
@@ -118,7 +123,8 @@ def test_edge_cases(sample_data):
     woe = WOE(
         cols=['age'],
         target_col='target',
-        n_bins=2
+        n_bins=2,
+        save_bin_id_col=True
     )
     result = woe.forward(sample_data)
     assert 'age_woe' in result.collect_schema().names()
@@ -127,7 +133,8 @@ def test_edge_cases(sample_data):
     woe = WOE(
         cols=['age'],
         target_col='target',
-        n_bins=50
+        n_bins=50,
+        save_bin_id_col=True
     )
     result = woe.forward(sample_data)
     assert 'age_woe' in result.collect_schema().names()
@@ -144,7 +151,8 @@ def test_invalid_inputs():
         woe = WOE(
             cols=['x'],
             target_col='target',
-            binning_method='invalid_method'
+            binning_method='invalid_method',
+            save_bin_id_col=True
         )
         woe.forward(df)
     
@@ -152,7 +160,8 @@ def test_invalid_inputs():
     with pytest.raises(Exception):
         woe = WOE(
             cols=['non_existent_col'],
-            target_col='target'
+            target_col='target',
+            save_bin_id_col=True
         )
         woe.forward(df)
 
@@ -161,7 +170,8 @@ def test_woe_values(sample_data):
     woe = WOE(
         cols=['age'],
         target_col='target',
-        n_bins=5
+        n_bins=5,
+        save_bin_id_col=True
     )
     
     result = woe.forward(sample_data).collect()
@@ -179,7 +189,8 @@ def test_lazy_evaluation(sample_data):
     
     woe = WOE(
         cols=['age'],
-        target_col='target'
+        target_col='target',
+        save_bin_id_col=True
     )
     
     result = woe.forward(lazy_df)
