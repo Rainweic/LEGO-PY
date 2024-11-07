@@ -121,7 +121,8 @@ class WOE(CustomStage):
         max_bins: int = 50,
         chi_merge_threshold: float = 0.1,
         save_ori_col: bool = True,
-        save_bin_id_col: bool = False
+        save_bin_id_col: bool = False,
+        save_iv_col: bool = False
     ):
         super().__init__(n_outputs=1)
         self.cols = cols if isinstance(cols, list) else [cols]
@@ -136,127 +137,214 @@ class WOE(CustomStage):
         self.custom_bins = bins or {}
         self.save_ori_col = save_ori_col
         self.save_bin_id_col = save_bin_id_col
+        self.save_iv_col = save_iv_col
 
         if not len(self.cols) and self.custom_bins:
             self.cols = list(self.custom_bins.keys())
 
-    def _calculate_woe(self, bin_stats: Dict) -> Dict:
-        """计算WOE值"""
+    def _calculate_woe(self, bin_stats: Dict) -> tuple:
+        """计算WOE值和IV值
+        
+        Returns:
+            tuple: (woe_dict, bin_iv_dict, total_iv)
+            - woe_dict: 每个分箱的WOE值
+            - bin_iv_dict: 每个分箱的IV值
+            - total_iv: 总IV值
+        """
         total_pos = sum(stats['target_count'] for stats in bin_stats.values())
         total_neg = sum(stats['count'] - stats['target_count'] for stats in bin_stats.values())
         
         woe_dict = {}
+        bin_iv_dict = {}
+        total_iv = 0
+        
         for bin_label, stats in bin_stats.items():
             pos = stats['target_count']
             neg = stats['count'] - pos
             
             # 使用平滑处理
-            pos_rate = (pos + 0.5) / (total_pos + 0.5)
-            neg_rate = (neg + 0.5) / (total_neg + 0.5)
+            pos_rate = (pos + 0.5) / (total_pos + 0.5)  # 好样本占比
+            neg_rate = (neg + 0.5) / (total_neg + 0.5)  # 坏样本占比
             
+            # 计算该分箱的WOE
             woe = np.log(pos_rate / neg_rate)
             woe_dict[bin_label] = float(woe)
             
-        return woe_dict
+            # 计算该分箱的IV
+            bin_iv = (pos_rate - neg_rate) * woe
+            bin_iv_dict[bin_label] = float(bin_iv)
+            
+            # 累加总IV
+            total_iv += bin_iv
+            
+        return woe_dict, bin_iv_dict, float(total_iv)
 
     def _plot_woe_summary(self, woe_summary: Dict):
-        """使用pyecharts可视化WOE分箱结果"""
+        """使用pyecharts可视化WOE分箱结果和IV值"""
         from pyecharts import options as opts
         from pyecharts.charts import Bar, Line
         
         all_summary = []
 
+        # 创建组合图表
+        line_iv = Line()
+        features = list(woe_summary.keys())
+        iv_values = [round(summary['total_iv'], 3) for summary in woe_summary.values()]
+        woe_values = []
+        for summary in woe_summary.values():
+            bin_woes = [stat['woe'] for stat in summary['bin_stats']]
+            avg_woe = round(sum(bin_woes) / len(bin_woes), 3)
+            woe_values.append(avg_woe)
+
+        # 添加IV值曲线
+        line_iv.add_xaxis(features)
+        line_iv.add_yaxis(
+            "IV值",
+            iv_values,
+            symbol_size=8,
+            label_opts=opts.LabelOpts(position="top", is_show=True),
+            linestyle_opts=opts.LineStyleOpts(width=3),
+            # markpoint_opts=opts.MarkPointOpts(
+            #     data=[
+            #         opts.MarkPointItem(type_="max", name="最大值"),
+            #         opts.MarkPointItem(type_="min", name="最小值")
+            #     ]
+            # )
+        )
+
+        # 添加WOE值曲线
+        line_iv.add_yaxis(
+            "WOE均值",
+            woe_values,
+            symbol_size=8,
+            label_opts=opts.LabelOpts(position="bottom"),
+            linestyle_opts=opts.LineStyleOpts(width=3),
+            # markpoint_opts=opts.MarkPointOpts(
+            #     data=[
+            #         opts.MarkPointItem(type_="max", name="最大值"),
+            #         opts.MarkPointItem(type_="min", name="最小值")
+            #     ]
+            # )
+        )
+
+        line_iv.set_global_opts(
+            title_opts=opts.TitleOpts(title="特征IV值和WOE值分布"),
+            xaxis_opts=opts.AxisOpts(
+                axislabel_opts=opts.LabelOpts(rotate=45),
+                name="特征"
+            ),
+            yaxis_opts=opts.AxisOpts(
+                name="值",
+                splitline_opts=opts.SplitLineOpts(is_show=True)
+            ),
+            tooltip_opts=opts.TooltipOpts(
+                trigger="axis",
+                axis_pointer_type="cross"
+            ),
+            legend_opts=opts.LegendOpts(pos_top="5%")
+        )
+
+        all_summary.append({"IV和WOE分布": line_iv.dump_options_with_quotes()})
+
+        # 每个特征的WOE和分箱IV值可视化
         for col, summary in woe_summary.items():
             # 准备数据
             bin_ranges = [f"{stat['bin_id']}:{stat['bin_range']}" for stat in summary['bin_stats']]
             counts = [stat['count'] for stat in summary['bin_stats']]
-            woe_values = [stat['woe'] for stat in summary['bin_stats']]
-            target_rates = [stat['target_rate'] * 100 for stat in summary['bin_stats']]
+            woe_values = [round(stat['woe'], 3) for stat in summary['bin_stats']]
+            target_rates = [round(stat['target_rate'] * 100, 3) for stat in summary['bin_stats']]
+            bin_iv_values = [round(stat['iv'], 3) for stat in summary['bin_stats']]  # 每个分箱的IV值
             
             # 创建图表
             bar = Bar(
                 init_opts=opts.InitOpts(
-                    width="900px",  # 减小图表宽度
+                    width="900px",
                     height="500px"
                 )
             )
             bar.add_xaxis(bin_ranges)
             
-            # 添加样本数柱状图和折线图
+            # 添加样本数柱状图
             bar.add_yaxis(
                 "样本数",
                 counts,
                 yaxis_index=0,
-                label_opts=opts.LabelOpts(position='top', color='black'),  # 隐藏数据标签
-                itemstyle_opts=opts.ItemStyleOpts(opacity=0.3, border_radius=1)  # 设置柱状图透明度
+                label_opts=opts.LabelOpts(is_show=True),
+                itemstyle_opts=opts.ItemStyleOpts(opacity=0.4)
             )
             
+            # 添加目标率折线图
+            line = Line()
+            line.add_xaxis(bin_ranges)
+            line.add_yaxis(
+                "目标率(%)",
+                target_rates,
+                yaxis_index=2,
+                symbol_size=8,
+                is_symbol_show=True,
+                label_opts=opts.LabelOpts(is_show=True),
+                linestyle_opts=opts.LineStyleOpts(width=3),
+                z_level=2
+            )
+            
+            # 添加分箱IV值折线图
+            line2 = Line()
+            line2.add_xaxis(bin_ranges)
+            line2.add_yaxis(
+                "分箱IV值",
+                bin_iv_values,
+                yaxis_index=3,
+                symbol_size=8,
+                is_symbol_show=True,
+                label_opts=opts.LabelOpts(is_show=True, position="top"),
+                linestyle_opts=opts.LineStyleOpts(width=2),
+                z_level=2
+            )
+
             # 添加WOE值折线图
-            line1 = Line()
-            line1.add_xaxis(bin_ranges)
-            line1.add_yaxis(
+            line3 = Line()
+            line3.add_xaxis(bin_ranges)
+            line3.add_yaxis(
                 "WOE值",
                 woe_values,
                 yaxis_index=1,
                 symbol_size=8,  # 增大点的大小
                 is_symbol_show=True,  # 显示数据点
-                label_opts=opts.LabelOpts(is_show=False),
-                itemstyle_opts=opts.LineStyleOpts(width=3),
-                z_level=2
-            )
-            
-            # 添加目标率折线图
-            line2 = Line()
-            line2.add_xaxis(bin_ranges)
-            line2.add_yaxis(
-                "目标率(%) [label为1数量/分箱样本量]",
-                target_rates,
-                yaxis_index=2,
-                symbol_size=8,
-                is_symbol_show=True,
-                label_opts=opts.LabelOpts(is_show=False),
+                label_opts=opts.LabelOpts(is_show=True),
                 itemstyle_opts=opts.LineStyleOpts(width=3),
                 z_level=2
             )
             
             # 组合图表
-            bar.overlap(line1)
+            bar.overlap(line)
             bar.overlap(line2)
+            bar.overlap(line3)
             
             # 设置全局配置
             bar.set_global_opts(
                 title_opts=opts.TitleOpts(
-                    subtitle=f"分箱数: {len(bin_ranges)}\n总样本数: {sum(counts)}"
+                    subtitle=f"分箱数: {len(bin_ranges)}\n总样本数: {sum(counts)}\n特征IV值: {summary['total_iv']:.4f}"
                 ),
                 xaxis_opts=opts.AxisOpts(
                     type_="category",
-                    axislabel_opts=opts.LabelOpts(
-                        rotate=45,
-                        interval=0,  # 显示所有标签
-                        margin=8
-                    )
+                    axislabel_opts=opts.LabelOpts(rotate=45, interval=0, margin=8)
                 ),
                 yaxis_opts=opts.AxisOpts(
                     name="样本数",
                     position="left",
-                    name_gap=35,  # 增加名称与轴的距离
+                    name_gap=35,
                     splitline_opts=opts.SplitLineOpts(is_show=True)
                 ),
-                datazoom_opts=[
-                    opts.DataZoomOpts(type_="slider", range_start=0, range_end=100)
-                ],
-                legend_opts=opts.LegendOpts(
-                    pos_top="5%",
-                    pos_left="center"  # 将图例居中显示
-                )
+                datazoom_opts=[opts.DataZoomOpts(type_="slider", range_start=0, range_end=100)],
+                legend_opts=opts.LegendOpts(pos_top="5%", pos_left="center")
             )
             
-            # 添加额外的y轴，增加offset间距
+            # 添加额外的y轴
             bar.extend_axis(
                 yaxis=opts.AxisOpts(
                     name="WOE值",
                     position="right",
-                    offset=0,  # 增加偏移量
+                    offset=0,
                     name_gap=15,
                     splitline_opts=opts.SplitLineOpts(is_show=False)
                 )
@@ -265,8 +353,17 @@ class WOE(CustomStage):
                 yaxis=opts.AxisOpts(
                     name="目标率(%)",
                     position="right",
-                    offset=45,  # 进一步增加偏移量
+                    offset=45,
                     name_gap=35,
+                    splitline_opts=opts.SplitLineOpts(is_show=False)
+                )
+            )
+            bar.extend_axis(
+                yaxis=opts.AxisOpts(
+                    name="IV值",
+                    position="right",
+                    offset=90,
+                    name_gap=15,
                     splitline_opts=opts.SplitLineOpts(is_show=False)
                 )
             )
@@ -318,22 +415,25 @@ class WOE(CustomStage):
             binner.fit(values, target)
             
             # 获取分箱编号和对应的标签
-            bin_indices = binner.transform(values)  # 现在返回分箱编号
+            bin_indices = binner.transform(values)
             bin_labels = [binner.binning_result.bin_indices[idx] for idx in bin_indices]
             
-            # 计算WOE值映射
-            woe_map = self._calculate_woe(binner.binning_result.bin_stats)
+            # 计算WOE值映射和IV值
+            woe_map, bin_iv_map, total_iv = self._calculate_woe(binner.binning_result.bin_stats)
             woe_values = [woe_map[label] for label in bin_labels]
+            iv_values = [bin_iv_map[label] for label in bin_labels]  # 获取每个样本对应的IV值
             
             # 构建特征的分箱统计信息
             woe_summary[col] = {
-                'bin_edges': binner.binning_result.bins,  # 分箱边界值列表
-                'bin_stats': [  # 每个分箱的详细统计
+                'bin_edges': binner.binning_result.bins,
+                'total_iv': total_iv,
+                'bin_stats': [
                     {
                         'bin_id': bin_id,
                         'bin_label': bin_label,
-                        'bin_range': bin_label,  # 直接使用数学表达式形式，如 "[0.00, 10.00)"
+                        'bin_range': bin_label,
                         'woe': woe_map[bin_label],
+                        'iv': bin_iv_map[bin_label],  # 该分箱的IV值
                         'count': binner.binning_result.bin_stats[bin_label]['count'],
                         'target_count': binner.binning_result.bin_stats[bin_label]['target_count'],
                         'target_rate': (lambda count, target_count: 
@@ -349,38 +449,37 @@ class WOE(CustomStage):
                 ]
             }
             
-            # 创建WOE表达式
+            # 创建WOE和IV表达式
             woe_expr = (
                 pl.col(col)
-                .replace(
-                    dict(zip(values, woe_values))
-                )
-                .cast(pl.Float64)  # 确保WOE值为浮点数类型
+                .replace(dict(zip(values, woe_values)))
+                .cast(pl.Float64)
                 .alias(f"{col}_woe")
             )
             
-            # 添加分箱编号、WOE列
+            # 添加分箱编号、WOE列和IV列
+            lf = lf.with_columns([woe_expr])
             if self.save_bin_id_col:
-                # 创建分箱编号表达式
                 bin_expr = (
                     pl.col(col)
-                    .replace(
-                        dict(zip(values, bin_indices))
-                    )
-                    .cast(pl.Int64)  # 确保分箱编号为整数类型
+                    .replace(dict(zip(values, bin_indices)))
+                    .cast(pl.Int64)
                     .alias(f"{col}_bin")
                 )
-                lf = lf.with_columns([bin_expr, woe_expr])
-            else:
-                lf = lf.with_columns([woe_expr])
+                lf = lf.with_columns([bin_expr])
+            if self.save_iv_col:
+                iv_expr = (
+                    pl.col(col)
+                    .replace(dict(zip(values, iv_values)))
+                    .cast(pl.Float64)
+                    .alias(f"{col}_iv")
+                )
+                lf = lf.with_columns([iv_expr])
             
             # 如果不保留原始列，则删除
             if not self.save_ori_col:
                 lf = lf.drop(col)
         
-        # self.logger.info(woe_summary)
-
-        # 在原有日志输出后添加可视化
         self.summary = self._plot_woe_summary(woe_summary)
         
         return lf
