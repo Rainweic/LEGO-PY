@@ -216,10 +216,20 @@ async def get_output():
                 # 计算起始行和结束行
                 start_row = page_idx * n_rows_one_page
                 
+                def handle_column(col, dtype):
+                    if dtype in [pl.Float32, pl.Float64, pl.Int16, pl.Int32, pl.Int64, pl.Int8]:
+                        return pl.col(col).fill_nan(None)
+                    elif dtype == pl.Utf8:
+                        return pl.col(col).fill_null("")  # 字符串类型的空值填充为空字符串
+                    else:
+                        return pl.col(col).fill_null(None)  # 其他类型的空值填充为None
+                
                 data = (
                     lazy_df
                         .slice(start_row, n_rows_one_page)
-                        .select(pl.all().fill_nan(None))
+                        .select([
+                            handle_column(col, dtype) for col, dtype in zip(lazy_df.columns, lazy_df.dtypes)
+                        ])
                         .with_row_count("行号", offset=start_row + 1)
                         .collect()
                 )
