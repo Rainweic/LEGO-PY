@@ -35,7 +35,8 @@ def test_basic_functionality(sample_data):
         target_col='target',
         binning_method='equal_freq',
         n_bins=5,
-        save_bin_id_col=True
+        save_bin_id_col=True,
+        save_ori_col=True
     )
     
     result = woe.forward(sample_data)

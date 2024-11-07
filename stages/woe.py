@@ -120,7 +120,7 @@ class WOE(CustomStage):
         min_samples: float = 0.05,
         max_bins: int = 50,
         chi_merge_threshold: float = 0.1,
-        save_ori_col: bool = True,
+        save_ori_col: bool = False,
         save_bin_id_col: bool = False,
         save_iv_col: bool = False
     ):
