@@ -26,8 +26,14 @@ ENV PATH=$PATH:$HADOOP_HOME/bin
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
 ENV PATH=$PATH:$JAVA_HOME/bin
 
-# 安装 pydoop 2.0
-RUN python3.10 -m pip install -i https://mirrors.aliyun.com/pypi/simple/ pydoop==2.0
+# 下载并解压pydoop
+WORKDIR /opt
+RUN wget https://files.pythonhosted.org/packages/e9/d3/c96293ea3ee5b7f51ec742accfcf7fbe5a939d5e66c2d19c5dbdcea26d2b/pydoop-2.0.0.tar.gz \
+    && tar xzf pydoop-2.0.0.tar.gz
+
+# 安装pydoop
+WORKDIR /opt/pydoop-2.0.0
+RUN python3.10 setup.py install
 
 # 设置工作目录
 WORKDIR /app
