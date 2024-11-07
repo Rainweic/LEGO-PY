@@ -1,46 +1,13 @@
 import os
-import pandas as pd
 import polars as pl
 import hashlib
-import logging
 import pyarrow.orc as orc
 import pyarrow.dataset as ds
 from utils.hdfs_v3 import download
-from dags.stage import CustomStage, stage
-from tqdm import tqdm
+from dags.stage import CustomStage
 
 
 CACHE_PATH = "./cache/download"
-
-
-def hdfs_download(path: str, overwrite: bool, logger):
-    # 确保缓存目录存在
-    if not os.path.exists(CACHE_PATH):
-        os.makedirs(CACHE_PATH)
-
-    # 使用路径的哈希值创建唯一的文件名
-    path_hash = hashlib.md5(path.encode()).hexdigest()[:8]
-    base_name = os.path.basename(path)
-    unique_name = f"{path_hash}_{base_name}"
-
-    # 构建本地缓存文件路径
-    local_path = os.path.join(CACHE_PATH, unique_name)
-    logger.info(f"Download: {path} -> {local_path}")
-
-    if os.path.exists(local_path):
-        if overwrite:
-            download(
-                path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
-            )
-            logger.info("下载完成")
-        else:
-            logger.warn(f"{local_path}已仍存在，不再下载")
-    else:
-        download(
-            path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
-        )
-        logger.info("下载完成")
-    return local_path
 
 
 class HDFSCSVReadStage(CustomStage):
@@ -60,10 +27,39 @@ class HDFSCSVReadStage(CustomStage):
     @property
     def file_type(self):
         return ".csv"
+    
+    def hdfs_download(self, path: str, overwrite: bool):
+        # 确保缓存目录存在
+        if not os.path.exists(CACHE_PATH):
+            os.makedirs(CACHE_PATH)
+
+        # 使用路径的哈希值创建唯一的文件名
+        path_hash = hashlib.md5(path.encode()).hexdigest()[:8]
+        base_name = os.path.basename(path)
+        unique_name = f"{path_hash}_{base_name}"
+
+        # 构建本地缓存文件路径
+        local_path = os.path.join(CACHE_PATH, unique_name)
+        self.logger.info(f"Download: {path} -> {local_path}")
+
+        if os.path.exists(local_path):
+            if overwrite:
+                download(
+                    path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
+                )
+                self.logger.info(f"下载完成: {path}")
+            else:
+                self.logger.warn(f"{local_path}已仍存在，不再下载")
+        else:
+            download(
+                path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
+            )
+            self.logger.info(f"下载完成: {path}")
+        return local_path
 
     def forward(self, *args, **kwargs) -> pl.LazyFrame:
 
-        local_path = hdfs_download(self.path, self.overwrite, self.logger)
+        local_path = self.hdfs_download(self.path, self.overwrite)
 
         df_list = []
         total_files = sum([len(files) for _, _, files in os.walk(local_path)])
@@ -103,7 +99,7 @@ class HDFSORCReadStage(HDFSCSVReadStage):
     
     def forward(self, *args, **kwargs) -> pl.LazyFrame:
         
-        local_path = hdfs_download(self.path, self.overwrite, self.logger)
+        local_path = self.hdfs_download(self.path, self.overwrite)
 
         df_list = []
 
