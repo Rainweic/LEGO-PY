@@ -46,7 +46,7 @@ def hdfs_download(path: str, overwrite: bool, logger):
 class HDFSCSVReadStage(CustomStage):
 
     def __init__(
-        self, path: str, select_cols: list = [], overwrite: bool = True, *args, **kwargs
+        self, path: str, select_cols: list = [], overwrite: bool = False, *args, **kwargs
     ):
         super().__init__(n_outputs=1)
         self.path = path
