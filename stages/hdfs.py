@@ -67,24 +67,24 @@ class HDFSCSVReadStage(CustomStage):
 
         df_list = []
         total_files = sum([len(files) for _, _, files in os.walk(local_path)])
-
-        with tqdm(total=total_files, desc="Reading df", unit="file") as pbar:
-            for root, dirs, files in os.walk(local_path):
-                for file in files:
-                    if file.endswith(self.file_type):
-                        file_path = os.path.join(root, file)
-                        try:
-                            df = self.reader(file_path)
-                            if self.select_cols:
-                                df = df.select(self.select_cols)
-                            df_list.append(df)
-                        except pd.errors.ParserError as e:
-                            self.logger.error(
-                                f"stage {self.name} read {file_path} error: {e}"
-                            )
-                            raise e
-                        finally:
-                            pbar.update(1)
+        processed_files = 0
+        
+        for root, dirs, files in os.walk(local_path):
+            for file in files:
+                if file.endswith(self.file_type):
+                    file_path = os.path.join(root, file)
+                    try:
+                        df = self.reader(file_path)
+                        if self.select_cols:
+                            df = df.select(self.select_cols)
+                        df_list.append(df)
+                        processed_files += 1
+                        self.logger.info(f"读取进度: {processed_files}/{total_files} - 当前文件: {file}")
+                    except Exception as e:
+                        self.logger.error(
+                            f"stage {self.name} read {file_path} error: {e}"
+                        )
+                        raise e
 
         if df_list:
             self.logger.info("Starting concat lazy dataframe")
@@ -117,8 +117,10 @@ class HDFSORCReadStage(HDFSCSVReadStage):
         if not orc_files:
             raise RuntimeError(f"Can not find any {self.file_type} files")
 
-        # 使用 tqdm 显示进度条
-        for file_path in tqdm(orc_files, desc="Reading ORC files"):
+        total_files = len(orc_files)
+        processed_files = 0
+        
+        for file_path in orc_files:
             try:
                 # 使用 pyarrow 读取 ORC 文件
                 orc_file = orc.ORCFile(file_path)
@@ -135,6 +137,9 @@ class HDFSORCReadStage(HDFSCSVReadStage):
                 batch = orc_file.read_stripe(i, columns=self.select_cols)
                 # 将 pyarrow Table 转换为 polars DataFrame 并追加到 df
                 df_list.append(pl.from_arrow(batch).lazy())
+            
+            processed_files += 1
+            self.logger.info(f"读取进度: {processed_files}/{total_files} - 当前文件: {file_path}")
 
         self.logger.info("Starting concat lazy dataframe")
         df = pl.concat(df_list, how="vertical_relaxed")
