@@ -79,7 +79,7 @@ class HDFSCSVReadStage(CustomStage):
                             df = df.select(self.select_cols)
                         df_list.append(df)
                         processed_files += 1
-                        self.logger.info(f"读取进度: {processed_files}/{total_files} - 当前文件: {file}")
+                        self.logger.info(f"读取进度: {processed_files}/{total_files} - 当前文件: {file_path}")
                     except Exception as e:
                         self.logger.error(
                             f"stage {self.name} read {file_path} error: {e}"
