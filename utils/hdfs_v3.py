@@ -304,7 +304,7 @@ def set_start_multiprocess():
     # 如果启动方法还未设置或者需要设置为'spawn'，则进行设置
     if multiprocessing_mode != "spawn":
         try:
-            multiprocessing.set_start_method("spawn")
+            multiprocessing.set_start_method("spawn", force=True)
             multiprocessing_mode = "spawn"
             print("Start method set to 'spawn'.")
         except RuntimeError as e:
