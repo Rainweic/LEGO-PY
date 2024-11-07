@@ -269,7 +269,7 @@ class WOE(CustomStage):
                 "样本数",
                 counts,
                 yaxis_index=0,
-                label_opts=opts.LabelOpts(is_show=True),
+                label_opts=opts.LabelOpts(is_show=True, color='black'),
                 itemstyle_opts=opts.ItemStyleOpts(opacity=0.4)
             )
             
