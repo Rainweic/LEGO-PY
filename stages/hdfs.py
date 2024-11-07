@@ -45,14 +45,14 @@ class HDFSCSVReadStage(CustomStage):
         if os.path.exists(local_path):
             if overwrite:
                 download(
-                    path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
+                    path, local_path, "obs://lts-bigdata-hive-obs-prod/", 1, True, "hadoop"
                 )
                 self.logger.info(f"下载完成: {path}")
             else:
                 self.logger.warn(f"{local_path}已仍存在，不再下载")
         else:
             download(
-                path, local_path, "obs://lts-bigdata-hive-obs-prod/", 10, True, "hadoop"
+                path, local_path, "obs://lts-bigdata-hive-obs-prod/", 1, True, "hadoop"
             )
             self.logger.info(f"下载完成: {path}")
         return local_path
