@@ -404,7 +404,8 @@ class WOE(CustomStage):
         target = lf.select(pl.col(self.target_col)).collect().to_numpy().flatten()
         woe_summary = {}
 
-        for col in self.cols:
+        for i, col in enumerate(self.cols):
+            self.logger.info(f"正在处理特征{col}, 进度: {i + 1}/{len(self.cols)}")
             values = lf.select(pl.col(col)).collect().to_numpy().flatten()
             
             # 创建并拟合分箱器
