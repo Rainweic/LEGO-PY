@@ -284,12 +284,11 @@ class Pipeline(CloudPickleSerializer, SQLiteCache):
 
             await self._update_stage_status(stage_name, StageStatus.FAILED)
 
+            self.stage_dict[stage_name].logger.error(f"\n------ 报错 job_id: {self.job_id} ------")
             error_msg = f"Stage {stage_name} failed: {str(e)}"
-            self.logger.error(error_msg)
-
-            self.stage_dict[stage_name].logger.error("------ 报错 ------")
             self.stage_dict[stage_name].logger.error(error_msg)
-            self.stage_dict[stage_name].logger.exception("完整的错误栈信息:")
+            self.stage_dict[stage_name].logger.exception("\n------ 完整的错误栈信息 ------\n")
+            self.stage_dict[stage_name].logger.error(f"\n------ 报错 job_id: {self.job_id} ------")
 
             # raise e
         finally:
