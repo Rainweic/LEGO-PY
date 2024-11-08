@@ -18,7 +18,7 @@ class Where(CustomStage):
 
     def __init__(self, conditions: list[str]):
         super().__init__(n_outputs=1)
-        self.conditions = [c for c in conditions if c]
+        self.conditions = [c.replace(",", " AND ") for c in conditions if c]
 
     def forward(self, lf: pl.LazyFrame) -> pl.LazyFrame:
         if isinstance(lf, pl.DataFrame):

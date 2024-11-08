@@ -219,10 +219,8 @@ async def get_output():
                 def handle_column(col, dtype):
                     if dtype in [pl.Float32, pl.Float64, pl.Int16, pl.Int32, pl.Int64, pl.Int8]:
                         return pl.col(col).fill_nan(None)
-                    elif dtype == pl.Utf8:
-                        return pl.col(col).fill_null("")  # 字符串类型的空值填充为空字符串
                     else:
-                        return pl.col(col).fill_null(None)  # 其他类型的空值填充为None
+                        return pl.col(col).fill_null("")  # 字符串类型的空值填充为空字符串
                 
                 data = (
                     lazy_df
