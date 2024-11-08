@@ -365,7 +365,11 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 o_n = self.output_data_names[0]
                 # if self._collect_result and isinstance(outs, pl.LazyFrame):
                 if isinstance(outs, pl.LazyFrame):
-                    outs = outs.collect()
+                    try:
+                        outs = outs.collect(streaming=True)
+                    except pl.exceptions.ComputeError as e:
+                        self.logger.warning(f"流式处理失败，切换为普通模式: {str(e)}")
+                        outs = outs.collect()
                 if self._show_collect:
                     self.logger.info(f"[Show Collect Result of Output {o_n}]\n{outs}")
                 await self.write(o_n, outs)
