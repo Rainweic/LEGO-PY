@@ -18,14 +18,17 @@ class Where(CustomStage):
 
     def __init__(self, conditions: list[str]):
         super().__init__(n_outputs=1)
-        self.conditions = [c.replace(",", " AND ") for c in conditions if c]
+        self.conditions = conditions
 
     def forward(self, lf: pl.LazyFrame) -> pl.LazyFrame:
         if isinstance(lf, pl.DataFrame):
             lf = lf.lazy()
 
         # 将条件连接成一个 SQL 语句
-        condition_str = " AND ".join(self.conditions)
+        if isinstance(self.conditions, list):
+            condition_str = " AND ".join(self.conditions)
+        elif isinstance(self.conditions, str):
+            condition_str = self.conditions.strip().replace('\n', "").replace(",", " AND ")
         sql_query = f"SELECT * FROM self WHERE {condition_str}"
 
         self.logger.info(f"[WHERE SQL] {sql_query}")
