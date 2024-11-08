@@ -1,205 +1,50 @@
 from dags.stage import CustomStage
-from datasketch import MinHash
-from typing import Set, Dict, List, Tuple
+from typing import Dict
 import polars as pl
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from datasketch import MinHash, MinHashLSH
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-import xxhash
-from pyecharts import options as opts
-from pyecharts.charts import Liquid
 
 
 class CustomerSimilarityStage(CustomStage):
-    """计算两个客户群体的相似度的优化版本"""
+    """使用MinHash LSH计算客户群体相似度"""
     
     def __init__(
         self, 
         feature_cols: list[str], 
-        num_perm: int = 128,
-        sample_size: int = None,  # 采样大小
-        n_threads: int = 4,       # 并行线程数
-        cache_size: int = 128     # LRU缓存大小
+        num_perm: int = 128,      # MinHash排列数
+        threshold: float = 0.01,   # LSH阈值，设置很小以捕获差异
+        n_threads: int = 4        # 并行线程数
     ):
         super().__init__(n_outputs=0)
         self.feature_cols = feature_cols
         self.num_perm = num_perm
-        self.sample_size = sample_size
+        self.threshold = threshold
         self.n_threads = n_threads
-        self.cache_size = cache_size
         
-    @staticmethod
-    def _fast_hash(value: str) -> int:
-        """使用xxhash进行快速哈希计算"""
-        return xxhash.xxh64(value).intdigest()
-    
-    def _sample_data(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        """智能采样数据
+    @lru_cache(maxsize=1024)
+    def _encode_feature(self, feature_value: str) -> str:
+        """对单个特征值进行编码，使用缓存加速"""
+        return f"{hash(feature_value):x}"
         
-        如果数据量超过sample_size，进行分层采样以保持数据分布
-        """
-        if not self.sample_size:
-            return df
-            
-        total_rows = df.select(pl.len()).collect().item()
-        if total_rows <= self.sample_size:
-            return df
-            
-        # 计算每个特征组合的采样比例
-        sample_fraction = self.sample_size / total_rows
+    def _create_minhash(self, features: list[str]) -> MinHash:
+        """创建MinHash"""
+        mh = MinHash(num_perm=self.num_perm)
+        for f in features:
+            mh.update(self._encode_feature(f).encode('utf8'))
+        return mh
         
-        # LazyFrame不支持sample方法，需先collect再采样
-        collected_df = df.collect()
-        sampled_df = (
-            collected_df.group_by(self.feature_cols)
-            .agg(pl.col("*"))
-            .sample(fraction=sample_fraction, seed=42)
-        )
+    def _process_batch(self, records: list[dict], feature_cols: list[str]) -> list[MinHash]:
+        """并行处理一批记录"""
+        minhashes = []
+        for record in records:
+            features = [str(record.get(col, 'MISSING')) for col in feature_cols]
+            mh = self._create_minhash(features)
+            minhashes.append(mh)
+        return minhashes
         
-        return sampled_df.lazy()  # 返回LazyFrame
-    
-    @lru_cache(maxsize=128)
-    def _get_feature_hash(self, feature_str: str) -> int:
-        """缓存特征哈希值"""
-        return self._fast_hash(feature_str)
-    
-    def _process_column_batch(
-        self, 
-        df: pl.DataFrame, 
-        cols: List[str]
-    ) -> Set[int]:
-        """并行处理一批特征列"""
-        features = set()
-        for col in cols:
-            col_values = df.get_column(col).unique().to_list()
-            features.update(
-                self._get_feature_hash(f"{col}_{val}") 
-                for val in col_values
-            )
-        return features
-    
-    def _create_feature_set(self, df: pl.LazyFrame) -> Set[int]:
-        """优化的特征集合创建
-        
-        1. 数据采样
-        2. 并行处理
-        3. 哈希缓存
-        """
-        # 采样
-        sampled_df = self._sample_data(df)
-        
-        # 收集数据
-        df_collected = sampled_df.collect()
-        
-        # 将特征列分成多个批次
-        batch_size = max(1, len(self.feature_cols) // self.n_threads)
-        column_batches = [
-            self.feature_cols[i:i + batch_size]
-            for i in range(0, len(self.feature_cols), batch_size)
-        ]
-        
-        # 并行处理每个批次
-        features = set()
-        with ThreadPoolExecutor(max_workers=self.n_threads) as executor:
-            future_to_batch = {
-                executor.submit(
-                    self._process_column_batch, 
-                    df_collected, 
-                    batch
-                ): batch 
-                for batch in column_batches
-            }
-            
-            for future in future_to_batch:
-                features.update(future.result())
-                
-        return features
-    
-    def _create_minhash(self, features: Set[int]) -> MinHash:
-        """创建MinHash对象"""
-        minhash = MinHash(num_perm=self.num_perm)
-        for feature in features:
-            # 直接使用整数特征值
-            minhash.update(str(feature).encode('utf8'))
-        return minhash
-    
-    def _calculate_similarity(
-        self, 
-        set1: Set[int], 
-        set2: Set[int]
-    ) -> Tuple[float, Dict]:
-        """使用MinHash计算相似度"""
-        # 创建MinHash
-        minhash1 = self._create_minhash(set1)
-        minhash2 = self._create_minhash(set2)
-        
-        # 计算MinHash估计的Jaccard相似度
-        similarity = minhash1.jaccard(minhash2)
-        
-        # 计算实际集合的大小(用于详细信息)
-        intersection_size = len(set1.intersection(set2))
-        union_size = len(set1.union(set2))
-        
-        details = {
-            "intersection_size": intersection_size,
-            "union_size": union_size,
-            "set1_size": len(set1),
-            "set2_size": len(set2),
-            "minhash_num_perm": self.num_perm
-        }
-        
-        return similarity, details
-    
-    def _create_similarity_chart(self, similarity: float) -> dict:
-        """创建相似度水滴图
-        
-        Args:
-            similarity: 相似度值 (0-1)
-            
-        Returns:
-            包含图表配置的字典
-        """
-        # 创建水滴图
-        liquid = (
-            Liquid()
-            .add(
-                "相似度",
-                [similarity],  # 数据值
-                label_opts=opts.LabelOpts(
-                    font_size=50,
-                    formatter=lambda x: f"{x * 100:.1f}%",
-                    position="inside"
-                ),
-                is_outline_show=False,
-                shape='circle',  # 可选 'circle', 'rect', 'roundRect', 'triangle', 'diamond', 'pin'
-            )
-            .set_global_opts(
-                title_opts=opts.TitleOpts(
-                    title="客户群体相似度",
-                    subtitle=f"基于 {len(self.feature_cols)} 个特征计算"
-                )
-            )
-        )
-        
-        # 自定义样式
-        liquid.options.get('series')[0].update(
-            itemStyle_opts=opts.ItemStyleOpts(
-                opacity=0.8,
-            ),
-            outline_border_distance=2,
-            outline_item_style_opts=opts.ItemStyleOpts(
-                border_color="#294D99",
-                border_width=2
-            ),
-            color=[
-                "rgb(41, 77, 153)",
-                "rgb(51, 97, 173)",
-                "rgb(61, 117, 193)"
-            ],
-            background_color="rgba(255, 255, 255, 0.8)"
-        )
-        
-        return {"相似度": liquid.dump_options_with_quotes()}
-    
     def forward(
         self, 
         group1_df: pl.LazyFrame, 
@@ -208,34 +53,92 @@ class CustomerSimilarityStage(CustomStage):
         """计算两个客户群的相似度"""
         self.logger.info("开始计算客户群体相似度...")
         
-        # 并行处理两个群体的特征
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future1 = executor.submit(self._create_feature_set, group1_df)
-            future2 = executor.submit(self._create_feature_set, group2_df)
+        # 收集数据并转换为字典列表
+        df1 = group1_df.collect()
+        df2 = group2_df.collect()
+        
+        if df1.height == 0 or df2.height == 0:
+            return {
+                "similarity_score": 0.0,
+                "details": {
+                    "intersection_size": 0,
+                    "union_size": max(df1.height, df2.height),
+                    "vectors1_size": df1.height,
+                    "vectors2_size": df2.height
+                },
+                "performance_info": {
+                    "empty_data": True,
+                    "cache_info": self._encode_feature.cache_info()._asdict()
+                }
+            }
+        
+        records1 = df1.to_dicts()
+        records2 = df2.to_dicts()
+        
+        # 分批处理
+        batch_size = max(100, min(len(records1), len(records2)) // self.n_threads)
+        batches1 = [records1[i:i + batch_size] for i in range(0, len(records1), batch_size)]
+        batches2 = [records2[i:i + batch_size] for i in range(0, len(records2), batch_size)]
+        
+        # 并行创建MinHash
+        with ThreadPoolExecutor(max_workers=self.n_threads) as executor:
+            minhashes1 = []
+            minhashes2 = []
             
-            set1 = future1.result()
-            set2 = future2.result()
+            # 并行处理两组数据
+            futures1 = [
+                executor.submit(self._process_batch, batch, self.feature_cols)
+                for batch in batches1
+            ]
+            futures2 = [
+                executor.submit(self._process_batch, batch, self.feature_cols)
+                for batch in batches2
+            ]
+            
+            # 收集结果
+            for future in futures1:
+                minhashes1.extend(future.result())
+            for future in futures2:
+                minhashes2.extend(future.result())
         
-        # 计算相似度
-        similarity, details = self._calculate_similarity(set1, set2)
+        # 使用LSH计算相似度
+        lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
         
-        # 创建相似度图表
-        chart_options = self._create_similarity_chart(similarity)
+        # 添加第一组的MinHash
+        for i, mh in enumerate(minhashes1):
+            lsh.insert(f"g1_{i}", mh)
         
-        # 准备结果
+        # 查询第二组并计算相似度
+        similarities = []
+        for mh2 in minhashes2:
+            result = lsh.query(mh2)
+            if result:
+                # 计算与匹配项的最大相似度
+                max_sim = max(
+                    mh2.jaccard(minhashes1[int(r.split('_')[1])])
+                    for r in result
+                )
+                similarities.append(max_sim)
+            else:
+                similarities.append(0.0)
+        
+        final_similarity = float(np.mean(similarities)) if similarities else 0.0
+        
         result = {
-            "similarity_score": similarity,
-            "details": details,
+            "similarity_score": final_similarity,
+            "details": {
+                "intersection_size": sum(1 for s in similarities if s > 0),
+                "union_size": len(records1) + len(records2),
+                "vectors1_size": len(records1),
+                "vectors2_size": len(records2)
+            },
             "performance_info": {
-                "sample_size": self.sample_size,
-                "threads_used": self.n_threads,
-                "cache_info": self._get_feature_hash.cache_info()._asdict()
+                "empty_data": False,
+                "batch_size": batch_size,
+                "num_batches": len(batches1) + len(batches2),
+                "cache_info": self._encode_feature.cache_info()._asdict()
             }
         }
         
-        # 添加图表到summary
-        self.summary = [chart_options]
-        
         self.logger.info(f"相似度计算完成: {result}")
-
         return result
