@@ -34,14 +34,19 @@ def build_lsh_index(minhashes_batch: List[MinHash], start_idx: int) -> List[tupl
     return results
 
 @ray.remote
-def compute_similarities(minhashes2_batch: List[MinHash], minhashes1: List[MinHash], 
-                       lsh: MinHashLSH) -> List[float]:
-    """Ray task: 并行计算相似度"""
+def compute_similarities_batch(minhashes2_batch: List[MinHash], 
+                             query_results: List[List[str]], 
+                             minhashes1_dict: Dict[str, MinHash]) -> List[float]:
+    """Ray task: 并行计算相似度
+    Args:
+        minhashes2_batch: 第二组的MinHash批次
+        query_results: 对应的LSH查询结果
+        minhashes1_dict: 第一组的MinHash字典(只包含需要的部分)
+    """
     similarities = []
-    for mh2 in minhashes2_batch:
-        result = lsh.query(mh2)
+    for mh2, result in zip(minhashes2_batch, query_results):
         if result:
-            sims = [mh2.jaccard(minhashes1[int(r.split('_')[1])]) for r in result]
+            sims = [mh2.jaccard(minhashes1_dict[r]) for r in result]
             similarities.append(np.mean(sims))
         else:
             similarities.append(0.0)
@@ -280,21 +285,56 @@ class CustomerSimilarityStage(CustomStage):
         # 计算相似度
         self.logger.info("开始计算相似度...")
         sim_batch_size = max(100, len(minhashes2) // self.n_threads)
-        sim_futures = [
-            compute_similarities.remote(
-                minhashes2[i:i + sim_batch_size],
-                minhashes1,
-                lsh
-            )
-            for i in range(0, len(minhashes2), sim_batch_size)
-        ]
         
-        # 收集相似度结果
+        # 创建minhashes1的字典形式，用于快速查找
+        minhashes1_dict = {f"g1_{i}": mh for i, mh in enumerate(minhashes1)}
+        
+        # 分批处理查询
         similarities = []
-        for i, batch_similarities in enumerate(ray.get(sim_futures)):
-            similarities.extend(batch_similarities)
-            if (i + 1) % max(1, len(sim_futures) // 10) == 0:
-                self.logger.info(f"相似度计算进度: {(i + 1) / len(sim_futures):.1%}")
+        futures = []
+        batch_count = 0
+        max_concurrent_batches = self.n_threads * 2  # 控制并发批次数
+        
+        for i in range(0, len(minhashes2), sim_batch_size):
+            batch = minhashes2[i:i + sim_batch_size]
+            
+            # 先进行LSH查询
+            query_results = [lsh.query(mh2) for mh2 in batch]
+            
+            # 获取这批数据需要的minhash1
+            needed_keys = set()
+            for results in query_results:
+                needed_keys.update(results)
+            
+            # 只传递需要的minhash1
+            batch_minhashes1_dict = {
+                k: minhashes1_dict[k] 
+                for k in needed_keys
+            }
+            
+            # 提交计算任务
+            future = compute_similarities_batch.remote(
+                batch,
+                query_results,
+                batch_minhashes1_dict
+            )
+            futures.append(future)
+            batch_count += 1
+            
+            # 当累积足够多的批次或是最后一批时，收集结果
+            if len(futures) >= max_concurrent_batches or i + sim_batch_size >= len(minhashes2):
+                # 等待任意一个任务完成
+                while futures:
+                    done_futures, futures = ray.wait(futures, num_returns=1)
+                    batch_similarities = ray.get(done_futures[0])
+                    similarities.extend(batch_similarities)
+                    
+                    if batch_count % max(1, (len(minhashes2) // sim_batch_size) // 10) == 0:
+                        self.logger.info(f"相似度计算进度: {len(similarities) / len(minhashes2):.1%}")
+            
+            # 显式清理不需要的数据
+            del batch_minhashes1_dict
+            del query_results
         
         # 计算最终结果
         non_zero_sims = [s for s in similarities if s > 0]
