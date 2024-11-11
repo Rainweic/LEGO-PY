@@ -39,23 +39,23 @@ class CustomerSimilarityStage(CustomStage):
     @staticmethod
     def _process_batch_wrapper(args):
         """包装_process_batch方法以支持单参数"""
-        records, feature_cols, weights = args
-        return CustomerSimilarityStage._process_batch(records, feature_cols, weights)
+        records, feature_cols, weights, num_perm = args
+        return CustomerSimilarityStage._process_batch(records, feature_cols, weights, num_perm)
         
     @staticmethod
-    def _process_batch(records: list[dict], feature_cols: list[str], weights: dict) -> list[MinHash]:
+    def _process_batch(records: list[dict], feature_cols: list[str], weights: dict, num_perm: int = 128) -> list[MinHash]:
         """并行处理一批记录，加入权重参数"""
         minhashes = []
         for record in records:
             features = [str(record.get(col, 'MISSING')) for col in feature_cols]
-            mh = CustomerSimilarityStage._create_minhash(features, weights, feature_cols)
+            mh = CustomerSimilarityStage._create_minhash(features, weights, feature_cols, num_perm)
             minhashes.append(mh)
         return minhashes
         
     @staticmethod
-    def _create_minhash(features: list[str], weights: dict, feature_cols: list[str]) -> MinHash:
+    def _create_minhash(features: list[str], weights: dict, feature_cols: list[str], num_perm: int = 128) -> MinHash:
         """创建MinHash，使用权重"""
-        mh = MinHash(num_perm=128)
+        mh = MinHash(num_perm=num_perm)
         
         # 对每个特征单独处理
         for col, val in zip(feature_cols, features):
@@ -263,9 +263,9 @@ class CustomerSimilarityStage(CustomStage):
         
         # 并行创建MinHash，使用进程池
         with Pool(processes=self.n_threads) as pool:
-            # 准备参数
-            batch_params1 = [(batch, self.feature_cols, weights) for batch in batches1]
-            batch_params2 = [(batch, self.feature_cols, weights) for batch in batches2]
+            # 准备参数，添加num_perm参数
+            batch_params1 = [(batch, self.feature_cols, weights, self.num_perm) for batch in batches1]
+            batch_params2 = [(batch, self.feature_cols, weights, self.num_perm) for batch in batches2]
             
             # 并行处理两组数据
             minhashes1 = []
@@ -276,7 +276,7 @@ class CustomerSimilarityStage(CustomStage):
             results1 = []
             for i, result in enumerate(pool.imap(CustomerSimilarityStage._process_batch_wrapper, batch_params1)):
                 results1.append(result)
-                if (i + 1) % max(1, len(batches1) // 10) == 0:  # 每完成10%输出一次
+                if (i + 1) % max(1, len(batches1) // 10) == 0:
                     self.logger.info(f"群体1进度: {(i + 1) / len(batches1):.1%}")
             
             # 处理第二组数据
