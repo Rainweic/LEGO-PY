@@ -398,10 +398,6 @@ class WOE(CustomStage):
             │ 35.0 ┆ 3        ┆ -0.456   │
             └──────┴──────────┴──────────┘
         """
-
-        while True:
-            continue
-
         if isinstance(lf, pl.DataFrame):
             lf = lf.lazy()
         
