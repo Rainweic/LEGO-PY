@@ -1,5 +1,5 @@
 from dags.stage import CustomStage
-from typing import Dict
+from typing import Dict, Union
 import polars as pl
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
@@ -55,16 +55,39 @@ class CustomerSimilarityStage(CustomStage):
     @staticmethod
     def _create_minhash(features: list[str], weights: dict, feature_cols: list[str]) -> MinHash:
         """创建MinHash，使用权重"""
-        mh = MinHash(num_perm=128)  # 使用固定值或通过参数传递
+        mh = MinHash(num_perm=128)
         
         # 对每个特征单独处理
         for col, val in zip(feature_cols, features):
-            weight = weights.get(col, 1)  # 使用默认权重1
+            weight = weights.get(col, 1)
             feature_str = f"{col}:{val}".encode('utf8')
             for _ in range(int(weight)):
                 mh.update(feature_str)
         
         return mh
+        
+    @staticmethod
+    def _build_lsh_index(args):
+        """并行构建LSH索引"""
+        minhashes_batch, start_idx = args
+        results = []
+        for i, mh in enumerate(minhashes_batch):
+            results.append((f"g1_{start_idx + i}", mh))
+        return results
+        
+    @staticmethod
+    def _compute_similarities(args):
+        """并行计算相似度"""
+        minhashes2_batch, minhashes1, lsh = args
+        similarities = []
+        for mh2 in minhashes2_batch:
+            result = lsh.query(mh2)
+            if result:
+                sims = [mh2.jaccard(minhashes1[int(r.split('_')[1])]) for r in result]
+                similarities.append(np.mean(sims))
+            else:
+                similarities.append(0.0)
+        return similarities
         
     def _validate_weights(self, weights: dict) -> None:
         """验证权重配置"""
@@ -270,29 +293,43 @@ class CustomerSimilarityStage(CustomStage):
             for result in results2:
                 minhashes2.extend(result)
         
-        self.logger.info("开始计算相似度...")
-        
-        # 使用LSH计算相似度
+        self.logger.info("开始构建LSH索引...")
         lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
         
-        # 添加第一组的MinHash
-        for i, mh in enumerate(minhashes1):
-            lsh.insert(f"g1_{i}", mh)
-            if (i + 1) % max(1, len(minhashes1) // 10) == 0:  # 每完成10%输出一次
-                self.logger.info(f"LSH索引构建进度: {(i + 1) / len(minhashes1):.1%}")
+        # 分批处理LSH索引构建
+        batch_size = max(100, len(minhashes1) // self.n_threads)
+        lsh_batches = [
+            (minhashes1[i:i + batch_size], i) 
+            for i in range(0, len(minhashes1), batch_size)
+        ]
         
-        # 查询第二组并计算相似度
-        similarities = []
-        for i, mh2 in enumerate(minhashes2):
-            result = lsh.query(mh2)
-            if result:
-                sims = [mh2.jaccard(minhashes1[int(r.split('_')[1])]) for r in result]
-                similarities.append(np.mean(sims))
-            else:
-                similarities.append(0.0)
-                
-            if (i + 1) % max(1, len(minhashes2) // 10) == 0:  # 每完成10%输出一次
-                self.logger.info(f"相似度计算进度: {(i + 1) / len(minhashes2):.1%}")
+        with Pool(processes=self.n_threads) as pool:
+            # 并行构建LSH索引
+            results = []
+            for i, batch_result in enumerate(pool.imap(CustomerSimilarityStage._build_lsh_index, lsh_batches)):
+                results.extend(batch_result)
+                if (i + 1) % max(1, len(lsh_batches) // 10) == 0:
+                    self.logger.info(f"LSH索引构建进度: {(i + 1) / len(lsh_batches):.1%}")
+            
+            # 插入所有索引
+            for key, mh in results:
+                lsh.insert(key, mh)
+            
+            self.logger.info("开始计算相似度...")
+            
+            # 分批处理相似度计算
+            sim_batch_size = max(100, len(minhashes2) // self.n_threads)
+            sim_batches = [
+                (minhashes2[i:i + sim_batch_size], minhashes1, lsh)
+                for i in range(0, len(minhashes2), sim_batch_size)
+            ]
+            
+            # 并行计算相似度
+            similarities = []
+            for i, batch_similarities in enumerate(pool.imap(CustomerSimilarityStage._compute_similarities, sim_batches)):
+                similarities.extend(batch_similarities)
+                if (i + 1) % max(1, len(sim_batches) // 10) == 0:
+                    self.logger.info(f"相似度计算进度: {(i + 1) / len(sim_batches):.1%}")
         
         # 使用非零相似度的平均值
         non_zero_sims = [s for s in similarities if s > 0]
