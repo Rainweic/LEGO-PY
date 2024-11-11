@@ -1,23 +1,59 @@
 from dags.stage import CustomStage
-from typing import Dict, Union
+from typing import Dict, Union, List
 import polars as pl
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
 from datasketch import MinHash, MinHashLSH
-from multiprocessing import Pool
+import ray
 from functools import lru_cache
 from pyecharts import options as opts
 from pyecharts.charts import Liquid
 
 
 
+@ray.remote
+def process_batch(records: List[Dict], feature_cols: List[str], weights: Dict[str, int], num_perm: int) -> List[MinHash]:
+    """Ray task: 并行处理一批记录"""
+    minhashes = []
+    for record in records:
+        features = [str(record.get(col, 'MISSING')) for col in feature_cols]
+        mh = MinHash(num_perm=num_perm)
+        for col, val in zip(feature_cols, features):
+            weight = weights.get(col, 1)
+            feature_str = f"{col}:{val}".encode('utf8')
+            for _ in range(int(weight)):
+                mh.update(feature_str)
+        minhashes.append(mh)
+    return minhashes
+
+@ray.remote
+def build_lsh_index(minhashes_batch: List[MinHash], start_idx: int) -> List[tuple]:
+    """Ray task: 并行构建LSH索引"""
+    results = []
+    for i, mh in enumerate(minhashes_batch):
+        results.append((f"g1_{start_idx + i}", mh))
+    return results
+
+@ray.remote
+def compute_similarities(minhashes2_batch: List[MinHash], minhashes1: List[MinHash], 
+                       lsh: MinHashLSH) -> List[float]:
+    """Ray task: 并行计算相似度"""
+    similarities = []
+    for mh2 in minhashes2_batch:
+        result = lsh.query(mh2)
+        if result:
+            sims = [mh2.jaccard(minhashes1[int(r.split('_')[1])]) for r in result]
+            similarities.append(np.mean(sims))
+        else:
+            similarities.append(0.0)
+    return similarities
+
 class CustomerSimilarityStage(CustomStage):
     """使用MinHash LSH计算客户群体相似度"""
     
     def __init__(
         self, 
-        feature_cols: list[str], 
-        weights: dict[str, int] | str = "auto",     # 可以是具体的权重dict或"auto"
+        feature_cols: List[str], 
+        weights: Union[Dict[str, int], str] = "auto",     # 可以是具体的权重dict或"auto"
         default_weight: int = 1,                    # 若weights中未覆盖所有权重，则未设置的特征所对应的权重默认值
         num_perm: int = 128,                        # MinHash排列数
         threshold: float = 0.01,                    # LSH阈值，设置很小以捕获差异
@@ -31,81 +67,15 @@ class CustomerSimilarityStage(CustomStage):
         self.threshold = threshold
         self.n_threads = n_threads
         
+        # 初始化Ray
+        if not ray.is_initialized():
+            ray.init(num_cpus=self.n_threads)
+        
     @lru_cache(maxsize=1024)
     def _encode_feature(self, feature_value: str) -> str:
         """对单个特征值进行编码，使用缓存加速"""
         return f"{hash(feature_value):x}"
         
-    @staticmethod
-    def _process_batch_wrapper(args):
-        """包装_process_batch方法以支持单参数"""
-        records, feature_cols, weights, num_perm = args
-        return CustomerSimilarityStage._process_batch(records, feature_cols, weights, num_perm)
-        
-    @staticmethod
-    def _process_batch(records: list[dict], feature_cols: list[str], weights: dict, num_perm: int = 128) -> list[MinHash]:
-        """并行处理一批记录，加入权重参数"""
-        minhashes = []
-        for record in records:
-            features = [str(record.get(col, 'MISSING')) for col in feature_cols]
-            mh = CustomerSimilarityStage._create_minhash(features, weights, feature_cols, num_perm)
-            minhashes.append(mh)
-        return minhashes
-        
-    @staticmethod
-    def _create_minhash(features: list[str], weights: dict, feature_cols: list[str], num_perm: int = 128) -> MinHash:
-        """创建MinHash，使用权重"""
-        mh = MinHash(num_perm=num_perm)
-        
-        # 对每个特征单独处理
-        for col, val in zip(feature_cols, features):
-            weight = weights.get(col, 1)
-            feature_str = f"{col}:{val}".encode('utf8')
-            for _ in range(int(weight)):
-                mh.update(feature_str)
-        
-        return mh
-        
-    @staticmethod
-    def _build_lsh_index(args):
-        """并行构建LSH索引"""
-        minhashes_batch, start_idx = args
-        results = []
-        for i, mh in enumerate(minhashes_batch):
-            results.append((f"g1_{start_idx + i}", mh))
-        return results
-        
-    @staticmethod
-    def _compute_similarities(args):
-        """并行计算相似度"""
-        minhashes2_batch, minhashes1, lsh = args
-        similarities = []
-        for mh2 in minhashes2_batch:
-            result = lsh.query(mh2)
-            if result:
-                sims = [mh2.jaccard(minhashes1[int(r.split('_')[1])]) for r in result]
-                similarities.append(np.mean(sims))
-            else:
-                similarities.append(0.0)
-        return similarities
-        
-    def _validate_weights(self, weights: dict) -> None:
-        """验证权重配置"""
-        # 检查是否有未知特征
-        unknown_features = set(weights.keys()) - set(self.feature_cols)
-        if unknown_features:
-            self.logger.warning(f"权重配置中包含未知特征: {unknown_features}")
-            
-        # 检查是否有特征未配置权重
-        missing_features = set(self.feature_cols) - set(weights.keys())
-        if missing_features:
-            self.logger.warning(f"以下特征未配置权重，将使用默认值{self.default_weight}: {missing_features}")
-            
-        # 检查权重值的合法性
-        invalid_weights = {k: v for k, v in weights.items() if not isinstance(v, (int, float)) or v <= 0}
-        if invalid_weights:
-            self.logger.warning(f"发现无效的权重值: {invalid_weights}，这些特征将使用默认值{self.default_weight}")
-            
     def _get_weights(self, df1: pl.DataFrame, df2: pl.DataFrame) -> dict:
         """获取特征权重"""
         if isinstance(self.weights_config, dict):
@@ -222,35 +192,39 @@ class CustomerSimilarityStage(CustomStage):
         
         return {"相似度": liquid.dump_options_with_quotes()}
 
-        
+    def _validate_weights(self, weights: dict) -> None:
+        """验证权重配置"""
+        # 检查是否有未知特征
+        unknown_features = set(weights.keys()) - set(self.feature_cols)
+        if unknown_features:
+            self.logger.warning(f"权重配置中包含未知特征: {unknown_features}")
+            
+        # 检查是否有特征未配置权重
+        missing_features = set(self.feature_cols) - set(weights.keys())
+        if missing_features:
+            self.logger.warning(f"以下特征未配置权重，将使用默认值{self.default_weight}: {missing_features}")
+            
+        # 检查权重值的合法性
+        invalid_weights = {k: v for k, v in weights.items() if not isinstance(v, (int, float)) or v <= 0}
+        if invalid_weights:
+            self.logger.warning(f"发现无效的权重值: {invalid_weights}，这些特征将使用默认值{self.default_weight}")
+            
     def forward(self, group1_df: pl.LazyFrame, group2_df: pl.LazyFrame) -> Dict:
         """计算两个客户群的相似度"""
         self.logger.info("开始计算客户群体相似度...")
         
-        # 收集数据并转换为字典列表
-        df1 = group1_df.collect()
-        df2 = group2_df.collect()
+        # 只collect需要的列
+        df1 = group1_df.select(self.feature_cols).collect()
+        df2 = group2_df.select(self.feature_cols).collect()
         self.logger.info(f"数据集大小 - 群体1: {df1.height}, 群体2: {df2.height}")
 
         # 获取权重
         weights = self._get_weights(df1, df2)
         
         if df1.height == 0 or df2.height == 0:
-            return {
-                "similarity_score": 0.0,
-                "details": {
-                    "intersection_size": 0,
-                    "union_size": max(df1.height, df2.height),
-                    "vectors1_size": df1.height,
-                    "vectors2_size": df2.height
-                },
-                "performance_info": {
-                    "empty_data": True,
-                    "cache_info": self._encode_feature.cache_info()._asdict(),
-                    "weights": weights
-                }
-            }
+            return self._empty_result(df1.height, df2.height, weights)
         
+        # 转换为字典列表，只包含所需特征
         records1 = df1.to_dicts()
         records2 = df2.to_dicts()
         
@@ -261,96 +235,76 @@ class CustomerSimilarityStage(CustomStage):
         
         self.logger.info(f"开始并行处理 - 批次大小: {batch_size}, 群体1批次数: {len(batches1)}, 群体2批次数: {len(batches2)}")
         
-        # 并行创建MinHash，使用进程池
-        with Pool(processes=self.n_threads) as pool:
-            # 准备参数，添加num_perm参数
-            batch_params1 = [(batch, self.feature_cols, weights, self.num_perm) for batch in batches1]
-            batch_params2 = [(batch, self.feature_cols, weights, self.num_perm) for batch in batches2]
-            
-            # 并行处理两组数据
-            minhashes1 = []
-            minhashes2 = []
-            
-            # 处理第一组数据
-            self.logger.info("处理群体1...")
-            results1 = []
-            for i, result in enumerate(pool.imap(CustomerSimilarityStage._process_batch_wrapper, batch_params1)):
-                results1.append(result)
-                if (i + 1) % max(1, len(batches1) // 10) == 0:
-                    self.logger.info(f"群体1进度: {(i + 1) / len(batches1):.1%}")
-            
-            # 处理第二组数据
-            self.logger.info("处理群体2...")
-            results2 = []
-            for i, result in enumerate(pool.imap(CustomerSimilarityStage._process_batch_wrapper, batch_params2)):
-                results2.append(result)
-                if (i + 1) % max(1, len(batches2) // 10) == 0:  # 每完成10%输出一次
-                    self.logger.info(f"群体2进度: {(i + 1) / len(batches2):.1%}")
-            
-            # 收集结果
-            for result in results1:
-                minhashes1.extend(result)
-            for result in results2:
-                minhashes2.extend(result)
+        # 使用Ray并行处理
+        futures1 = [process_batch.remote(batch, self.feature_cols, weights, self.num_perm) 
+                   for batch in batches1]
+        futures2 = [process_batch.remote(batch, self.feature_cols, weights, self.num_perm) 
+                   for batch in batches2]
         
+        # 收集结果
+        minhashes1 = []
+        minhashes2 = []
+        
+        # 处理第一组数据
+        self.logger.info("处理群体1...")
+        for i, result in enumerate(ray.get(futures1)):
+            minhashes1.extend(result)
+            if (i + 1) % max(1, len(batches1) // 10) == 0:
+                self.logger.info(f"群体1进度: {(i + 1) / len(batches1):.1%}")
+                
+        # 处理第二组数据
+        self.logger.info("处理群体2...")
+        for i, result in enumerate(ray.get(futures2)):
+            minhashes2.extend(result)
+            if (i + 1) % max(1, len(batches2) // 10) == 0:
+                self.logger.info(f"群体2进度: {(i + 1) / len(batches2):.1%}")
+        
+        # LSH处理
         self.logger.info("开始构建LSH索引...")
         lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
         
-        # 分批处理LSH索引构建
+        # 分批构建LSH索引
         batch_size = max(100, len(minhashes1) // self.n_threads)
-        lsh_batches = [
-            (minhashes1[i:i + batch_size], i) 
+        lsh_futures = [
+            build_lsh_index.remote(minhashes1[i:i + batch_size], i)
             for i in range(0, len(minhashes1), batch_size)
         ]
         
-        with Pool(processes=self.n_threads) as pool:
-            # 并行构建LSH索引
-            results = []
-            for i, batch_result in enumerate(pool.imap(CustomerSimilarityStage._build_lsh_index, lsh_batches)):
-                results.extend(batch_result)
-                if (i + 1) % max(1, len(lsh_batches) // 10) == 0:
-                    self.logger.info(f"LSH索引构建进度: {(i + 1) / len(lsh_batches):.1%}")
-            
-            # 插入所有索引
-            for key, mh in results:
+        # 收集并插入索引
+        for i, batch_result in enumerate(ray.get(lsh_futures)):
+            for key, mh in batch_result:
                 lsh.insert(key, mh)
-            
-            self.logger.info("开始计算相似度...")
-            
-            # 分批处理相似度计算
-            sim_batch_size = max(100, len(minhashes2) // self.n_threads)
-            sim_batches = [
-                (minhashes2[i:i + sim_batch_size], minhashes1, lsh)
-                for i in range(0, len(minhashes2), sim_batch_size)
-            ]
-            
-            # 并行计算相似度
-            similarities = []
-            for i, batch_similarities in enumerate(pool.imap(CustomerSimilarityStage._compute_similarities, sim_batches)):
-                similarities.extend(batch_similarities)
-                if (i + 1) % max(1, len(sim_batches) // 10) == 0:
-                    self.logger.info(f"相似度计算进度: {(i + 1) / len(sim_batches):.1%}")
+            if (i + 1) % max(1, len(lsh_futures) // 10) == 0:
+                self.logger.info(f"LSH索引构建进度: {(i + 1) / len(lsh_futures):.1%}")
         
-        # 使用非零相似度的平均值
+        # 计算相似度
+        self.logger.info("开始计算相似度...")
+        sim_batch_size = max(100, len(minhashes2) // self.n_threads)
+        sim_futures = [
+            compute_similarities.remote(
+                minhashes2[i:i + sim_batch_size],
+                minhashes1,
+                lsh
+            )
+            for i in range(0, len(minhashes2), sim_batch_size)
+        ]
+        
+        # 收集相似度结果
+        similarities = []
+        for i, batch_similarities in enumerate(ray.get(sim_futures)):
+            similarities.extend(batch_similarities)
+            if (i + 1) % max(1, len(sim_futures) // 10) == 0:
+                self.logger.info(f"相似度计算进度: {(i + 1) / len(sim_futures):.1%}")
+        
+        # 计算最终结果
         non_zero_sims = [s for s in similarities if s > 0]
         final_similarity = float(np.mean(non_zero_sims)) if non_zero_sims else 0.0
         
-        result = {
-            "similarity_score": final_similarity,
-            "details": {
-                "intersection_size": sum(1 for s in similarities if s > 0),
-                "union_size": len(records1) + len(records2),
-                "vectors1_size": len(records1),
-                "vectors2_size": len(records2)
-            },
-            "performance_info": {
-                "empty_data": False,
-                "batch_size": batch_size,
-                "num_batches": len(batches1) + len(batches2),
-                "cache_info": self._encode_feature.cache_info()._asdict(),
-                "weights": weights
-            }
-        }
+        result = self._create_result(
+            final_similarity, similarities, records1, records2, 
+            batch_size, batches1, batches2, weights
+        )
         
         self.logger.info(f"相似度计算完成: {result}")
         self.summary = self._create_similarity_chart(final_similarity)
+        return result
