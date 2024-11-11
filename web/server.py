@@ -8,14 +8,15 @@ from dags.parser import load_pipelines_from_yaml
 
 import os
 import math
-import uuid
+import psutil
 import pickle
 import logging
 import asyncio
 import traceback
 import polars as pl
-import pandas as pd
+import cloudpickle
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Process
 
 
 app = Flask(__name__)
@@ -52,29 +53,40 @@ def handle_error(e):
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response, 500
 
+# 将run_pipeline函数移到外部
+def run_pipeline(temp_file_path):
+    try:
+        # 设置新的事件循环
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # 运行pipeline
+            loop.run_until_complete(load_pipelines_from_yaml(temp_file_path))
+        finally:
+            loop.close()
+    except Exception as e:
+        logging.error(f"Pipeline执行出错: {str(e)}")
+        logging.exception("完整错误栈:")
+
 # 新增一个函数来处理图表的重新运行逻辑
 async def run_graph_logic(graph_json_str, force_rerun):
     graph_yaml, job_id = json2yaml(graph_json_str, force_rerun=force_rerun)
     config_dir = os.path.join('cache', job_id, 'config')
     os.makedirs(config_dir, exist_ok=True)
     temp_file_path = os.path.join(config_dir, 'graph_config.yaml')
+    
     with open(temp_file_path, 'w') as temp_file:
         temp_file.write(graph_yaml)
     logging.info(f"YAML 内容已写入临时文件: {temp_file_path}")
     
-    # 创建一个新的事件循环来运行 load_pipelines_from_yaml
-    def run_in_new_loop(temp_file_path):
-        new_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(new_loop)
-        try:
-            new_loop.run_until_complete(load_pipelines_from_yaml(temp_file_path))
-        finally:
-            new_loop.close()
-
-    # 使用 ThreadPoolExecutor 在新线程中运行 load_pipelines_from_yaml
-    executor = ThreadPoolExecutor()
-    executor.submit(run_in_new_loop, temp_file_path)
-
+    # 启动新进程，传入文件路径参数
+    process = Process(target=run_pipeline, args=(temp_file_path,))
+    process.start()
+    
+    # 记录进程信息到缓存中，方便后续终止操作
+    cache = SQLiteCache()
+    await cache.write(f"process_{job_id}", str(process.pid))
+    
     response = jsonify({"message": "running", "data": {"job_id": job_id}})
     origin = request.headers.get('Origin')
     if origin in origins:
@@ -315,7 +327,7 @@ async def get_schema():
 #         .set_global_opts(title_opts=opts.TitleOpts(title="Bar-基本示例", subtitle="我是副标题"))
 #     )
 #     summary = c.dump_options_with_quotes()
-#     return {"hasData": True, "datas": [{"图表1": summary, "图表2": summary}]}
+#     return {"hasData": True, "datas": [{"图1": summary, "图表2": summary}]}
 
 
 @app.route("/summary")
@@ -381,6 +393,76 @@ def list_files():
         
     except Exception as e:
         return handle_error(e)
+
+
+background_executor = ThreadPoolExecutor(max_workers=4)
+
+@app.route('/terminate_pipeline', methods=['GET', 'OPTIONS'])
+async def terminate_pipeline():
+    if request.method == "OPTIONS":
+        return handle_options_request()
+    elif request.method == "GET":
+        try:
+            job_id = request.args.get("job_id")
+            if not job_id:
+                return jsonify({"error": "Missing job_id parameter"}), 400
+            
+            # 从缓存中获取进程ID
+            cache = SQLiteCache()
+            process_id = await cache.read(f"process_{job_id}")
+
+            # 从缓存中获取stage name
+            pipeline_obj = cloudpickle.loads(await cache.read(f"pipeline_{job_id}"))
+            # logging.info(pipeline_obj)
+            stage_names = pipeline_obj.pipeline.nodes
+            
+            if not process_id:
+                return jsonify({"error": "Process not found"}), 404
+            
+            # 在后台执行进程终止
+            def terminate_background():
+                try:
+
+                    process = psutil.Process(int(process_id))
+                    
+                    # 终止子进程
+                    for child in process.children(recursive=True):
+                        try:
+                            child.kill()  # 使用kill()强制终止
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                    
+                    # 终止主进程
+                    try:
+                        process.kill()  # 使用kill()强制终止
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                    
+                    # 等待进程结束
+                    try:
+                        process.wait(timeout=3)
+                        for stage_name in stage_names:
+                            cache.write_sync(f"{job_id}_{stage_name}", StageStatus.FAILED.value)
+                    except (psutil.TimeoutExpired, psutil.NoSuchProcess):
+                        pass
+                        
+                    logging.info(f"Pipeline {job_id} 进程ID:{process_id}已终止")
+                except Exception as e:
+                    logging.error(f"终止进程时出错: {str(e)}")
+            
+            # 在后台线程中执行终止操作
+            background_executor.submit(terminate_background)
+            
+            msg = f"Pipeline {job_id} 终止指令已发送"
+            response = jsonify({"message": msg})
+            origin = request.headers.get('Origin')
+            if origin in origins:
+                response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add("Access-Control-Allow-Credentials", "true")
+            return response
+            
+        except Exception as e:
+            return handle_error(e)
 
 
 if __name__ == "__main__":
