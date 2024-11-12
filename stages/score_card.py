@@ -1,3 +1,4 @@
+import json
 import polars as pl
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -126,6 +127,8 @@ class ScoreCard(CustomStage):
             'solver': 'lbfgs',  # 推荐使用'lbfgs'或'newton-cg'
             'tol': 1e-4  # 收敛容差
         }
+        if isinstance(self.train_params):
+            self.train_params = json.loads(self.train_params)
         
         # 评分卡参数
         self.base_score = base_score  # 基础分
