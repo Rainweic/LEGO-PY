@@ -8,30 +8,95 @@ from dags.stage import CustomStage
 
 class CustomLogisticRegression(LogisticRegression):
     """扩展LogisticRegression以记录训练过程"""
-    def fit(self, X, y, sample_weight=None):
+    def __init__(
+        self,
+        penalty='l2',
+        *,
+        dual=False,
+        tol=1e-4,
+        C=1.0,
+        fit_intercept=True,
+        intercept_scaling=1,
+        class_weight=None,
+        random_state=None,
+        solver='lbfgs',
+        max_iter=100,
+        multi_class='auto',
+        verbose=0,
+        warm_start=False,
+        n_jobs=None,
+        l1_ratio=None,
+    ):
+        super().__init__(
+            penalty=penalty,
+            dual=dual,
+            tol=tol,
+            C=C,
+            fit_intercept=fit_intercept,
+            intercept_scaling=intercept_scaling,
+            class_weight=class_weight,
+            random_state=random_state,
+            solver=solver,
+            max_iter=max_iter,
+            multi_class=multi_class,
+            verbose=verbose,
+            warm_start=warm_start,
+            n_jobs=n_jobs,
+            l1_ratio=l1_ratio,
+        )
         self.loss_history = []
-        self._fit_with_callback(X, y, sample_weight)
-        return self
-    
-    def _fit_with_callback(self, X, y, sample_weight=None):
-        """在每次迭代后记录loss"""
         
-        def callback(params):
-            # 计算当前参数下的预测概率
-            proba = 1 / (1 + np.exp(-np.dot(X, params.reshape(-1, 1))))
-            # 计算并记录loss
-            current_loss = log_loss(y, proba)
-            self.loss_history.append(current_loss)
+    def _callback(self, params):
+        """每次迭代后的回调函数"""
+        if not hasattr(self, 'X_fit_'):
             return False
+            
+        # 计算当前参数下的预测概率
+        z = -(self.X_fit_ @ params.reshape(-1, 1) + self.intercept_)
+        proba = 1 / (1 + np.exp(z)).reshape(-1)
         
-        # 设置回调函数
-        self._callback = callback
+        # 计算并记录loss
+        current_loss = log_loss(self.y_fit_, proba)
+        self.loss_history.append(current_loss)
+        return False
+
+    def fit(self, X, y, sample_weight=None):
+        """重写fit方法以记录训练过程"""
+        self.loss_history = []  # 重置历史记录
+        self.X_fit_ = X
+        self.y_fit_ = y
         
-        # 调用原始的fit方法
+        # 调用父类的fit方法
         super().fit(X, y, sample_weight)
+        
+        # 记录最终的loss
+        if len(self.loss_history) == 0:
+            z = -(X @ self.coef_.T + self.intercept_)
+            final_proba = 1 / (1 + np.exp(z)).reshape(-1)
+            final_loss = log_loss(y, final_proba)
+            self.loss_history.append(final_loss)
+        
+        return self
+
+    def _fit_liblinear(self, X, y, sample_weight):
+        """liblinear solver不支持callback，需要特殊处理"""
+        super()._fit_liblinear(X, y, sample_weight)
+        # 至少记录最终的loss
+        z = -(X @ self.coef_.T + self.intercept_)
+        final_proba = 1 / (1 + np.exp(z)).reshape(-1)
+        self.loss_history = [log_loss(y, final_proba)]
+        return self
+
+    def _fit_lbfgs(self, X, y, sample_weight):
+        """lbfgs solver的特殊处理"""
+        self._solver_options = {
+            'callback': self._callback,
+            'maxiter': self.max_iter
+        }
+        return super()._fit_lbfgs(X, y, sample_weight)
 
 class ScoreCard(CustomStage):
-    def __init__(self, features, label, train_params=None, base_score=600, pdo=20, base_odds=50):
+    def __init__(self, features, label_col, train_params=None, base_score=600, pdo=20, base_odds=50):
         """初始化评分卡模型
         
         Args:
@@ -48,7 +113,7 @@ class ScoreCard(CustomStage):
         """
         super().__init__(n_outputs=1)
         self.features = features
-        self.label = label
+        self.label = label_col
         self.model = None
         self.metrics = {}
         
@@ -88,43 +153,85 @@ class ScoreCard(CustomStage):
         A = self.base_score - B * np.log(self.base_odds)
         return A, B
         
-    def _plot_loss_history(self, loss_history):
-        """绘制loss历史曲线"""
+    def _sample_loss_history(self, loss_history, max_points=100):
+        """对loss历史进行均匀采样
+        
+        Args:
+            loss_history (list): 原始loss历史数据
+            max_points (int): 最大采样点数
+            
+        Returns:
+            tuple: (采样后的索引列表, 采样后的loss值列表)
+        """
+        n_points = len(loss_history)
+        if n_points <= max_points:
+            return list(range(1, n_points + 1)), loss_history
+            
+        # 计算采样间隔
+        step = n_points / max_points
+        
+        # 生成采样索引
+        indices = [int(i * step) for i in range(max_points)]
+        indices[-1] = min(indices[-1], n_points - 1)  # 确保不越界
+        
+        # 采样loss值
+        sampled_loss = [loss_history[i] for i in indices]
+        
+        # 生成对应的x轴标签
+        x_labels = [i + 1 for i in indices]
+        
+        # 确保包含第一个和最后一个点
+        if indices[0] != 0:
+            x_labels.insert(0, 1)
+            sampled_loss.insert(0, loss_history[0])
+        if indices[-1] != n_points - 1:
+            x_labels.append(n_points)
+            sampled_loss.append(loss_history[-1])
+            
+        return x_labels, sampled_loss
+
+    def _plot_loss_history(self, loss_history, max_points=100):
+        """绘制loss历史曲线
+        
+        Args:
+            loss_history (list): loss历史数据
+            max_points (int): 最大显示点数
+        """
+        # 对数据进行采样
+        x_labels, sampled_loss = self._sample_loss_history(loss_history, max_points)
+        
+        self.logger.info(f"Loss历史数据点数: 原始={len(loss_history)}, 采样后={len(sampled_loss)}")
+        
         line = (
             Line()
-            .add_xaxis(list(range(1, len(loss_history) + 1)))
+            .add_xaxis(x_labels)
             .add_yaxis(
                 "LogLoss",
-                loss_history,
-                is_smooth=True,
-                markpoint_opts=opts.MarkPointOpts(
-                    data=[
-                        opts.MarkPointItem(type_="min", name="最小值"),
-                        opts.MarkPointItem(type_="max", name="最大值")
-                    ]
-                )
+                sampled_loss,
+                is_smooth=True,  # 使用平滑曲线
+                symbol_size=6,   # 数据点大小
             )
             .set_global_opts(
-                title_opts=opts.TitleOpts(title="训练过程中的LogLoss变化"),
-                tooltip_opts=opts.TooltipOpts(trigger="axis"),
+                title_opts=opts.TitleOpts(
+                    title="训练过程中的LogLoss变化",
+                    subtitle=f"(采样显示{len(sampled_loss)}个点)"
+                ),
                 xaxis_opts=opts.AxisOpts(
                     type_="category",
                     name="迭代次数",
                     name_location="center",
-                    name_gap=30
+                    name_gap=30,
+                    splitline_opts=opts.SplitLineOpts(is_show=True)
                 ),
                 yaxis_opts=opts.AxisOpts(
                     name="LogLoss",
                     name_location="center",
                     name_gap=40,
                     splitline_opts=opts.SplitLineOpts(is_show=True)
-                ),
-                datazoom_opts=[
-                    opts.DataZoomOpts(range_start=0, range_end=100)
-                ]
+                )
             )
         )
-        return line
+        return {"LogLoss": line.dump_options_with_quotes()}
 
     @staticmethod
     def predict(model, data: pl.LazyFrame) -> pl.LazyFrame:
@@ -156,17 +263,18 @@ class ScoreCard(CustomStage):
 
         return result
 
-    def forward(self, train_woe: pl.LazyFrame, eval_woe: pl.LazyFrame):
+    def forward(self, train_woe: pl.LazyFrame, eval_woe: pl.LazyFrame=None):
         """训练评分卡模型"""
         # 准备训练数据
         X_train = train_woe.select(self.features).collect().to_numpy()
         y_train = train_woe.select(self.label).collect().to_numpy().ravel()
         
         # 准备评估数据
-        X_eval = eval_woe.select(self.features).collect().to_numpy()
-        y_eval = eval_woe.select(self.label).collect().to_numpy().ravel()
+        if eval_woe is not None:
+            X_eval = eval_woe.select(self.features).collect().to_numpy()
+            y_eval = eval_woe.select(self.label).collect().to_numpy().ravel()
         
-        # 使用自定义的逻辑回归模型
+        # 用自定义的逻辑回归模型
         lr = CustomLogisticRegression(**self.train_params)
         lr.fit(X_train, y_train)
         
@@ -175,8 +283,9 @@ class ScoreCard(CustomStage):
         self.metrics['train'] = self._calculate_metrics(y_train, train_proba)
         
         # 计算评估集指标
-        eval_proba = lr.predict_proba(X_eval)[:, 1]
-        self.metrics['eval'] = self._calculate_metrics(y_eval, eval_proba)
+        if eval_woe is not None:
+            eval_proba = lr.predict_proba(X_eval)[:, 1]
+            self.metrics['eval'] = self._calculate_metrics(y_eval, eval_proba)
         
         # 计算评分卡参数
         A, B = self._calculate_score_params()
@@ -190,11 +299,11 @@ class ScoreCard(CustomStage):
             'score_params': (float(A), float(B)),
         }
         
-        # 使用静态predict方法生成预测结果
-        result = self.predict(model_info, eval_woe)
+        # # 使用静态predict方法生成预测结果
+        # result = self.predict(model_info, eval_woe)
         
         # 生成loss历史图表
-        self.summary.append(self._plot_loss_history(lr.loss_history).dump_options_with_quotes())
+        self.summary.append(self._plot_loss_history(lr.loss_history))
         
         # 记录summary信息
         train_info = {
@@ -203,12 +312,6 @@ class ScoreCard(CustomStage):
                 "KS": f"{self.metrics['train']['ks']:.4f}",
                 "LogLoss": f"{self.metrics['train']['log_loss']:.4f}",
                 "AvgPrecision": f"{self.metrics['train']['avg_precision']:.4f}"
-            },
-            "评估集指标": {
-                "AUC": f"{self.metrics['eval']['auc']:.4f}",
-                "KS": f"{self.metrics['eval']['ks']:.4f}",
-                "LogLoss": f"{self.metrics['eval']['log_loss']:.4f}",
-                "AvgPrecision": f"{self.metrics['eval']['avg_precision']:.4f}"
             },
             "模型参数": {
                 "基础分": self.base_score,
@@ -219,6 +322,14 @@ class ScoreCard(CustomStage):
                 "迭代次数": len(lr.loss_history)
             }
         }
+
+        if eval_woe is not None:
+            train_info["评估集指标"] = {
+                "AUC": f"{self.metrics['eval']['auc']:.4f}",
+                "KS": f"{self.metrics['eval']['ks']:.4f}",
+                "LogLoss": f"{self.metrics['eval']['log_loss']:.4f}",
+                "AvgPrecision": f"{self.metrics['eval']['avg_precision']:.4f}"
+            },
 
         self.logger.info(train_info)
         
