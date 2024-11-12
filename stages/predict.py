@@ -1,6 +1,7 @@
 import polars as pl
 from dags.stage import CustomStage
 from stages.xgb import XGB
+from stages.score_card import ScoreCard
 
 
 class Predict(CustomStage):
@@ -19,6 +20,8 @@ class Predict(CustomStage):
         
         if model_type == "XGB":
             result = XGB.predict(model=model, lf=lf)
+        elif model_type == "ScoreCard":
+            result = ScoreCard.predict(model=model, data=lf)
 
         if "y_score" in result.columns:
             result = result.with_columns(

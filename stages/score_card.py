@@ -148,11 +148,12 @@ class ScoreCard(CustomStage):
         scores = A + B * np.log(odds)
         
         # 添加预测结果
-        result = data.with_columns([
-            pl.Series("probability", proba),
+        result = data.select([
+            pl.col("*"),
+            pl.Series("y_score", proba),
             pl.Series("score", scores.round().astype(int))
         ])
-        
+
         return result
 
     def forward(self, train_woe: pl.LazyFrame, eval_woe: pl.LazyFrame):
@@ -182,6 +183,7 @@ class ScoreCard(CustomStage):
         
         # 保存模型和相关参数
         model_info = {
+            'type': 'ScoreCard',
             'weight': lr.coef_.tolist(),
             'bias': float(lr.intercept_),
             'features': self.features,
@@ -220,4 +222,4 @@ class ScoreCard(CustomStage):
 
         self.logger.info(train_info)
         
-        return result
+        return model_info
