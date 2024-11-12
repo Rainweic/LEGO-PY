@@ -42,7 +42,7 @@ class CustomerSimilarityStage(CustomStage):
             .set_global_opts(
                 title_opts=opts.TitleOpts(
                     title="客户群体相似度",
-                    subtitle=f"基于 {len(self.feature_cols)} 个特征计算"
+                    subtitle=f"基于 {len(self.cols)} 个特征计算"
                 )
             )
         )
