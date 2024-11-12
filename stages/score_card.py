@@ -258,7 +258,7 @@ class ScoreCard(CustomStage):
         result = data.select([
             pl.col("*"),
             pl.Series("y_score", proba),
-            pl.Series("score", scores.round().astype(int))
+            pl.Series("ScoreCard_Score", scores.round().astype(int))
         ])
 
         return result
