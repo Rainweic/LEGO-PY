@@ -17,12 +17,36 @@ import polars as pl
 import cloudpickle
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Process
+import ray
 
 
 app = Flask(__name__)
 origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000", "http://10.222.107.184:8000"]
 
 CORS(app, resources={r"/rerun_graph": {"origins": origins}}, supports_credentials=True)
+
+# 初始化Ray
+ray.init(ignore_reinit_error=True)
+
+# 全局字典存储Ray引用
+pipeline_tasks = {}
+
+@ray.remote
+class PipelineActor:
+    def __init__(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+    
+    def run_pipeline(self, temp_file_path: str):
+        try:
+            return self.loop.run_until_complete(load_pipelines_from_yaml(temp_file_path))
+        except Exception as e:
+            logging.error(f"Pipeline执行出错: {str(e)}")
+            logging.exception("完整错误栈:")
+            raise e
+            
+    def __del__(self):
+        self.loop.close()
 
 
 @app.route('/test')
@@ -53,23 +77,10 @@ def handle_error(e):
     response.headers.add("Access-Control-Allow-Credentials", "true")
     return response, 500
 
-# 将run_pipeline函数移到外部
-def run_pipeline(temp_file_path):
-    try:
-        # 设置新的事件循环
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # 运行pipeline
-            loop.run_until_complete(load_pipelines_from_yaml(temp_file_path))
-        finally:
-            loop.close()
-    except Exception as e:
-        logging.error(f"Pipeline执行出错: {str(e)}")
-        logging.exception("完整错误栈:")
 
 # 新增一个函数来处理图表的重新运行逻辑
 async def run_graph_logic(graph_json_str, force_rerun):
+    """处理图表运行逻辑，使用Ray管理任务"""
     graph_yaml, job_id = json2yaml(graph_json_str, force_rerun=force_rerun)
     config_dir = os.path.join('cache', job_id, 'config')
     os.makedirs(config_dir, exist_ok=True)
@@ -79,13 +90,15 @@ async def run_graph_logic(graph_json_str, force_rerun):
         temp_file.write(graph_yaml)
     logging.info(f"YAML 内容已写入临时文件: {temp_file_path}")
     
-    # 启动新进程，传入文件路径参数
-    process = Process(target=run_pipeline, args=(temp_file_path,))
-    process.start()
+    # 创建Ray actor并启动pipeline
+    actor = PipelineActor.remote()
+    task_ref = actor.run_pipeline.remote(temp_file_path)
     
-    # 记录进程信息到缓存中，方便后续终止操作
-    cache = SQLiteCache()
-    await cache.write(f"process_{job_id}", str(process.pid))
+    # 存储到全局字典
+    pipeline_tasks[job_id] = {
+        'actor': actor,
+        'task': task_ref
+    }
     
     response = jsonify({"message": "running", "data": {"job_id": job_id}})
     origin = request.headers.get('Origin')
@@ -395,10 +408,9 @@ def list_files():
         return handle_error(e)
 
 
-background_executor = ThreadPoolExecutor(max_workers=4)
-
 @app.route('/terminate_pipeline', methods=['GET', 'OPTIONS'])
 async def terminate_pipeline():
+    """终止pipeline执行"""
     if request.method == "OPTIONS":
         return handle_options_request()
     elif request.method == "GET":
@@ -407,53 +419,37 @@ async def terminate_pipeline():
             if not job_id:
                 return jsonify({"error": "Missing job_id parameter"}), 400
             
-            # 从缓存中获取进程ID
-            cache = SQLiteCache()
-            process_id = await cache.read(f"process_{job_id}")
-
-            # 从缓存中获取stage name
-            pipeline_obj = cloudpickle.loads(await cache.read(f"pipeline_{job_id}"))
-            # logging.info(pipeline_obj)
-            stage_names = pipeline_obj.pipeline.nodes
+            # 从全局字典获取Ray引用
+            task_info = pipeline_tasks.get(job_id)
+            if not task_info:
+                return jsonify({"error": "Task not found"}), 404
             
-            if not process_id:
-                return jsonify({"error": "Process not found"}), 404
+            try:
+                # 从缓存中获取stage names
+                cache = SQLiteCache()
+                pipeline_obj = cloudpickle.loads(await cache.read(f"pipeline_{job_id}"))
+                stage_names = pipeline_obj.pipeline.nodes
+                
+                # 终止actor和任务
+                ray.kill(task_info['actor'])
+                ray.cancel(task_info['task'])
+                
+                # 更新所有stage状态为FAILED
+                for stage_name in stage_names:
+                    await cache.write(f"{job_id}_{stage_name}", StageStatus.FAILED.value)
+                    logging.info(f"已将stage {stage_name} 状态设置为FAILED")
+                
+                # 清理全局字典
+                del pipeline_tasks[job_id]
+                
+                msg = f"Pipeline {job_id} 已终止，所有stage状态已设置为FAILED"
+                logging.info(msg)
+                
+            except Exception as e:
+                msg = f"终止Pipeline {job_id} 时出错: {str(e)}"
+                logging.error(msg)
+                return jsonify({"error": msg}), 500
             
-            # 在后台执行进程终止
-            def terminate_background():
-                try:
-
-                    process = psutil.Process(int(process_id))
-                    
-                    # 终止子进程
-                    for child in process.children(recursive=True):
-                        try:
-                            child.kill()  # 使用kill()强制终止
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
-                    
-                    # 终止主进程
-                    try:
-                        process.kill()  # 使用kill()强制终止
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        pass
-                    
-                    # 等待进程结束
-                    try:
-                        process.wait(timeout=3)
-                        for stage_name in stage_names:
-                            cache.write_sync(f"{job_id}_{stage_name}", StageStatus.FAILED.value)
-                    except (psutil.TimeoutExpired, psutil.NoSuchProcess):
-                        pass
-                        
-                    logging.info(f"Pipeline {job_id} 进程ID:{process_id}已终止")
-                except Exception as e:
-                    logging.error(f"终止进程时出错: {str(e)}")
-            
-            # 在后台线程中执行终止操作
-            background_executor.submit(terminate_background)
-            
-            msg = f"Pipeline {job_id} 终止指令已发送"
             response = jsonify({"message": msg})
             origin = request.headers.get('Origin')
             if origin in origins:
@@ -463,6 +459,59 @@ async def terminate_pipeline():
             
         except Exception as e:
             return handle_error(e)
+
+@app.route('/ray_status', methods=['GET', 'OPTIONS'])
+def ray_status():
+    """获取Ray集群状态信息"""
+    if request.method == "OPTIONS":
+        return handle_options_request()
+    elif request.method == "GET":
+        try:
+            # 获取Ray集群状态
+            actors = len(ray.state.actors())
+            tasks = len(ray.state.tasks())
+            
+            # 获取系统资源使用情况
+            cpu_percent = psutil.cpu_percent()
+            memory = psutil.virtual_memory()
+            memory_used = round(memory.used / 1024 / 1024 / 1024, 2)  # 转换为GB
+            memory_total = round(memory.total / 1024 / 1024 / 1024, 2)  # 转换为GB
+            memory_percent = memory.percent
+            
+            status = {
+                "ray_status": {
+                    "actors": actors,
+                    "tasks": tasks
+                },
+                "system_status": {
+                    "cpu_usage": f"{cpu_percent}%",
+                    "memory_usage": f"{memory_used}GB/{memory_total}GB ({memory_percent}%)"
+                },
+                "visualization": {
+                    "type": "gauge",
+                    "data": [
+                        {
+                            "name": "CPU使用率",
+                            "value": cpu_percent
+                        },
+                        {
+                            "name": "内存使用率",
+                            "value": memory_percent
+                        }
+                    ]
+                }
+            }
+            
+            response = jsonify(status)
+            origin = request.headers.get('Origin')
+            if origin in origins:
+                response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add("Access-Control-Allow-Credentials", "true")
+            return response
+            
+        except Exception as e:
+            return handle_error(e)
+
 
 
 if __name__ == "__main__":
