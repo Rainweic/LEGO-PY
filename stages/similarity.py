@@ -172,4 +172,6 @@ class CustomerSimilarityStage(CustomStage):
             }
         }
         
-        return result
+        self._create_similarity_chart(float(similarity))
+
+        self.logger.info(result)
