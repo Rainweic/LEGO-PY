@@ -53,12 +53,18 @@ class CustomLogisticRegression(LogisticRegression):
             return False
             
         # 计算当前参数下的预测概率
-        z = -(self.X_fit_ @ params.reshape(-1, 1) + self.intercept_)
+        coef = params[:-1].reshape(1, -1)
+        intercept = params[-1]
+        z = -(self.X_fit_ @ coef.T + intercept)
         proba = 1 / (1 + np.exp(z)).reshape(-1)
         
         # 计算并记录loss
         current_loss = log_loss(self.y_fit_, proba)
         self.loss_history.append(current_loss)
+        
+        if len(self.loss_history) % 10 == 0:  # 每10次迭代记录一次
+            self.logger.info(f"Iteration {len(self.loss_history)}, Loss: {current_loss:.6f}")
+        
         return False
 
     def fit(self, X, y, sample_weight=None):
@@ -67,16 +73,20 @@ class CustomLogisticRegression(LogisticRegression):
         self.X_fit_ = X
         self.y_fit_ = y
         
+        # 手动记录初始loss
+        initial_proba = np.ones(len(y)) * y.mean()
+        initial_loss = log_loss(y, initial_proba)
+        self.loss_history.append(initial_loss)
+        
         # 调用父类的fit方法
         super().fit(X, y, sample_weight)
         
-        # 记录最终的loss
-        if len(self.loss_history) == 0:
-            z = -(X @ self.coef_.T + self.intercept_)
-            final_proba = 1 / (1 + np.exp(z)).reshape(-1)
-            final_loss = log_loss(y, final_proba)
+        # 记录最终loss
+        final_proba = self.predict_proba(X)[:, 1]
+        final_loss = log_loss(y, final_proba)
+        if final_loss != self.loss_history[-1]:
             self.loss_history.append(final_loss)
-        
+            
         return self
 
     def _fit_liblinear(self, X, y, sample_weight):
@@ -90,11 +100,34 @@ class CustomLogisticRegression(LogisticRegression):
 
     def _fit_lbfgs(self, X, y, sample_weight):
         """lbfgs solver的特殊处理"""
-        self._solver_options = {
-            'callback': self._callback,
-            'maxiter': self.max_iter
-        }
-        return super()._fit_lbfgs(X, y, sample_weight)
+        from scipy.optimize import fmin_l_bfgs_b
+        
+        # 初始化参数
+        n_features = X.shape[1]
+        w0 = np.zeros(n_features + 1)  # +1 for intercept
+        
+        # 定义目标函数
+        def func(w):
+            coef = w[:-1].reshape(1, -1)
+            intercept = w[-1]
+            z = -(X @ coef.T + intercept)
+            proba = 1 / (1 + np.exp(z)).reshape(-1)
+            return log_loss(y, proba)
+        
+        # 优化
+        w_opt, _, _ = fmin_l_bfgs_b(
+            func,
+            w0,
+            maxiter=self.max_iter,
+            callback=self._callback,
+            pgtol=self.tol
+        )
+        
+        # 设置最优参数
+        self.coef_ = w_opt[:-1].reshape(1, -1)
+        self.intercept_ = np.array([w_opt[-1]])
+        
+        return self
 
 class ScoreCard(CustomStage):
     def __init__(self, features, label_col, train_params=None, base_score=600, pdo=20, base_odds=50):
