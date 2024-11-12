@@ -127,7 +127,7 @@ class ScoreCard(CustomStage):
             'solver': 'lbfgs',  # 推荐使用'lbfgs'或'newton-cg'
             'tol': 1e-4  # 收敛容差
         }
-        if isinstance(self.train_params):
+        if isinstance(self.train_params, str):
             self.train_params = json.loads(self.train_params)
         
         # 评分卡参数
