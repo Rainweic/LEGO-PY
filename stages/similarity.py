@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
-from typing import Literal, Tuple
+from typing import List, Literal, Tuple
 from sklearn.cluster import KMeans
 import numpy as np
 from scipy import stats
@@ -191,12 +191,14 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         n_bins: int = 10,
         smooth_factor: float = 1e-10,  # 平滑因子，避免出现0概率
         handle_outliers: bool = False,  # 是否处理异常值
+        mean_KL_method: str = "weighted_average", # 计算KL均值方案
     ):
         super().__init__(feature_cols)
         self.bin_method = bin_method
         self.n_bins = n_bins
         self.smooth_factor = smooth_factor if isinstance(smooth_factor, float) else eval(smooth_factor)
         self.handle_outliers = handle_outliers
+        self.mean_KL_method = mean_KL_method
         
     def _calculate_kl_divergence(self, p: np.ndarray, q: np.ndarray) -> float:
         """计算KL散度"""
@@ -206,14 +208,30 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         
         # 处理可能的数值问题
         if np.isnan(kl_div) or np.isinf(kl_div):
-            self.logger.warning(f"KL散度计算异常: p={p}, q={q}, kl_div={kl_div}")
+            # self.logger.warning(f"KL散度计算异常: p={p}, q={q}, kl_div={kl_div}")
+            self.logger.warning(f"KL散度计算异常, 存在None或者inf")
             return 0.0
             
         return max(0.0, kl_div)  # 确保非负
     
     def _calculate_similarity(self, kl_div: float) -> float:
-        """将KL散度转换为相似度分数(0-1)"""
-        return 1 / (1 + kl_div)
+        """将KL散度转换为相似度分数(0-1)
+        
+        Args:
+            kl_div: KL散度值
+            
+        Returns:
+            float: 相似度分数，范围[0,1]
+        """
+        if np.isnan(kl_div) or kl_div < 0:
+            self.logger.warning(f"无效的KL散度值: {kl_div}")
+            return 0.0
+        
+        self.logger.warn(f"KL散度值: {kl_div}")
+
+        # 使用指数函数将KL散度映射到(0,1]区间
+        # exp(-kl_div) 在 kl_div=0 时为1，随着kl_div增大快速趋近于0
+        return np.exp(-kl_div)
     
     def _choose_bin_method(self, data: np.ndarray) -> str:
         # 检查数据分布
@@ -252,6 +270,32 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         # 使用clip裁剪异常值
         return feat.clip(lower, upper)
     
+    def _calculate_feature_weights(self, feature_kl_divs: List[float], 
+                                 feature_entropies: List[float]) -> np.ndarray:
+        """基于特征熵计算权重
+        
+        Args:
+            feature_kl_divs: 每个特征的KL散度
+            feature_entropies: 每个特征的熵值
+            
+        Returns:
+            np.ndarray: 归一化的特征权重
+        """
+        if not feature_entropies:
+            return np.ones(len(feature_kl_divs)) / len(feature_kl_divs)
+            
+        # 使用熵作为权重的基础
+        weights = np.array(feature_entropies)
+        weights = np.nan_to_num(weights, nan=np.nanmin(weights), posinf=np.nanmax(weights), neginf=np.nanmin(weights))
+        
+        # 避免除零
+        weights = np.clip(weights, 1e-10, None)
+        
+        # 归一化权重
+        weights = weights / weights.sum()
+        
+        return weights
+    
     def forward(self, group1_df: pl.LazyFrame, group2_df: pl.LazyFrame):
         """计算两个客户群的相似度"""
         if not self.cols:
@@ -263,6 +307,7 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         
         feature_kl_divs = []
         feature_details = []
+        feature_entropies = []
         
         categorical_feats = []
         numerical_feats = []
@@ -329,6 +374,7 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
 
                 if self.bin_method == 'auto':
                     bin_method = self._choose_bin_method(data)
+                    self.logger.info(f"特征: {feature} 自动选择分箱方法: {bin_method}")
                 else:
                     bin_method = self.bin_method
 
@@ -362,12 +408,20 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
             hist2 = hist2 + self.smooth_factor
             hist1 = hist1 / hist1.sum()
             hist2 = hist2 / hist2.sum()
+
+            # 计算特征的熵
+            entropy = -np.sum(hist1 * np.log(hist1 + 1e-10))
+            feature_entropies.append(entropy)
             
             # 计算KL散度并存储结果
             kl_div_12 = self._calculate_kl_divergence(hist1, hist2)
             kl_div_21 = self._calculate_kl_divergence(hist2, hist1)
             avg_kl_div = (kl_div_12 + kl_div_21) / 2
             
+            if np.isnan(avg_kl_div) or np.isinf(avg_kl_div):
+                self.logger.warn(f"特征{feature}计算的avg_kl_div为{avg_kl_div}，将被设置为0带入统计。hist1: {hist1} hist2: {hist2} ")
+                avg_kl_div = 0
+
             feature_kl_divs.append(avg_kl_div)
             feature_details.append({
                 'feature': feature,
@@ -377,8 +431,19 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
                 # 'dist2': hist2.tolist()
             })
         
+        if self.mean_KL_method == 'harmonic_average':
+            # 调和平均
+            total_kl_div = stats.hmean([1 + kl for kl in feature_kl_divs]) - 1
+        elif self.mean_KL_method == 'arithmetic_average':
+            # 算术平均
+            total_kl_div = np.mean(feature_kl_divs)
+        elif self.mean_KL_method == 'weighted_average':
+            # 加权平均
+            weights = self._calculate_feature_weights(feature_kl_divs, feature_entropies)      # 计算自适应权重
+            # self.logger.info(f"自动计算所得特征权重: {weights}")
+            total_kl_div = np.sum(np.array(feature_kl_divs) * weights)
+
         # 计算总体相似度
-        total_kl_div = stats.hmean([1 + kl for kl in feature_kl_divs]) - 1
         similarity = self._calculate_similarity(total_kl_div)
         
         # 创建结果字典
@@ -397,5 +462,5 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         }
         
         self.summary.append(self._create_similarity_chart(float(similarity)))
-        self.logger.info(result)
+        # self.logger.info(result)
         return result
