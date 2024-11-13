@@ -317,18 +317,24 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
 
                 # 1. 先用group1的数据确定分箱边界
                 data = feat1.to_numpy()
-                if self.bin_method == 'equal_width':
+
+                if self.bin_method == 'auto':
+                    bin_method = self._choose_bin_method(data)
+                else:
+                    bin_method = self.bin_method
+
+                if bin_method == 'equal_width':
                     bins = np.linspace(
                         data.min(), 
                         data.max(), 
                         self.n_bins + 1
                     )
-                elif self.bin_method == 'equal_freq':
+                elif bin_method == 'equal_freq':
                     bins = np.percentile(
                         data,
                         np.linspace(0, 100, self.n_bins + 1)
                     )
-                elif self.bin_method == 'kmeans':
+                elif bin_method == 'kmeans':
                     kmeans = KMeans(n_clusters=self.n_bins, random_state=42)
                     kmeans.fit(data.reshape(-1, 1))
                     centers = np.sort(kmeans.cluster_centers_.flatten())
