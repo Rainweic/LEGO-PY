@@ -5,6 +5,7 @@ from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_prec
 from pyecharts import options as opts
 from pyecharts.charts import Grid, Liquid
 from pyecharts.commons.utils import JsCode
+from scipy import stats
 import numpy as np
 
 from dags.stage import CustomStage
@@ -423,6 +424,72 @@ class BinaryEval(CustomStage):
                 ))
         )
 
+        # 计算核密度估计
+        pos_scores = y_score[y_true == 1]
+        neg_scores = y_score[y_true == 0]
+        
+        # 计算正样本的核密度估计
+        pos_density = stats.gaussian_kde(pos_scores)
+        x_range = np.linspace(min(y_score), max(y_score), 200)
+        pos_y = pos_density(x_range)
+        
+        # 计算负样本的核密度估计
+        neg_density = stats.gaussian_kde(neg_scores)
+        neg_y = neg_density(x_range)
+
+        # 创建双峰图
+        density_line = (
+            Line()
+            .add_xaxis([round(float(x), 4) for x in x_range])
+            .add_yaxis(
+                "正样本",
+                [round(float(y), 4) for y in pos_y],
+                symbol="none",
+                is_smooth=True,
+                linestyle_opts=opts.LineStyleOpts(width=3),
+                label_opts=opts.LabelOpts(is_show=False),
+                itemstyle_opts=opts.ItemStyleOpts(color="#66BB6A"),
+                areastyle_opts=opts.AreaStyleOpts(opacity=0.3)
+            )
+            .add_yaxis(
+                "负样本",
+                [round(float(y), 4) for y in neg_y],
+                symbol="none",
+                is_smooth=True,
+                linestyle_opts=opts.LineStyleOpts(width=3),
+                label_opts=opts.LabelOpts(is_show=False),
+                itemstyle_opts=opts.ItemStyleOpts(color="#EF5350"),
+                areastyle_opts=opts.AreaStyleOpts(opacity=0.3)
+            )
+            .set_global_opts(
+                title_opts=opts.TitleOpts(title="预测分数分布"),
+                xaxis_opts=opts.AxisOpts(
+                    name="预测分数",
+                    type_="value",
+                ),
+                yaxis_opts=opts.AxisOpts(
+                    name="密度",
+                    type_="value",
+                ),
+                tooltip_opts=opts.TooltipOpts(
+                    trigger="axis",
+                    axis_pointer_type="cross",
+                )
+            )
+        )
+        
+        # 使用Grid调整布局
+        density_grid = Grid()
+        density_grid.add(
+            density_line,
+            grid_opts=opts.GridOpts(
+                pos_left="15%",
+                pos_right="15%",
+                pos_top="15%",
+                pos_bottom="15%"
+            )
+        )
+
         # 渲染图表
         # base_metrics.render("base_metrics.html")
 
@@ -448,8 +515,11 @@ class BinaryEval(CustomStage):
             {"ROC曲线": roc_grid.dump_options_with_quotes()},
             {"PR曲线": pr_grid.dump_options_with_quotes()},
             {"Recall曲线": recall_grid.dump_options_with_quotes()},
+            {"双峰图": density_grid.dump_options_with_quotes()},
             {"混淆矩阵": confusion_grid.dump_options_with_quotes()},
         ])
 
         self.logger.info(f"评估指标: {metrics}")
         return lf
+    
+
