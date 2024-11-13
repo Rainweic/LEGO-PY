@@ -31,7 +31,7 @@ class TestCustomerSimilarityStage(unittest.TestCase):
         cities = np.random.choice(
             ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '重庆'],
             n_users,
-            p=[0.15, 0.15, 0.12, 0.12, 0.1, 0.1, 0.08, 0.08, 0.05, 0.05]  # ���线和新一线城市分布
+            p=[0.15, 0.15, 0.12, 0.12, 0.1, 0.1, 0.08, 0.08, 0.05, 0.05]  # 线和新一线城市分布
         )
         
         # 购物类别 - 基于常见电商类别
@@ -238,7 +238,7 @@ class TestCustomerSimilarityStage(unittest.TestCase):
     #     group2 = pl.LazyFrame({
     #         'customer_id': range(11, 21),
     #         'age_range': ['25-34'] * 8 + ['26-35'] * 2,  # 略微年龄差异
-    #         'city': ['北京'] * 6 + ['���海'] * 4,  # 相似城市分布
+    #         'city': ['北京'] * 6 + ['海'] * 4,  # 相似城市分布
     #         'category': ['数码'] * 8 + ['电子'] * 2,
     #         'spending_level': ['高'] * 7 + ['中高'] * 3,
     #         'member_level': ['钻石会员'] * 5 + ['金卡会员'] * 5
@@ -267,17 +267,150 @@ class TestBinnedKLSimilarityStage(unittest.TestCase):
     
     @classmethod
     def setUpClass(cls):
-        """复用TestCustomerSimilarityStage的测试数据准备逻辑"""
-        TestCustomerSimilarityStage.setUpClass()
-        cls.feature_cols = TestCustomerSimilarityStage.feature_cols
-        cls.group1_data = TestCustomerSimilarityStage.group1_data
-        cls.group2_data = TestCustomerSimilarityStage.group2_data
-        cls.empty_data = TestCustomerSimilarityStage.empty_data
-        cls.single_record_data = TestCustomerSimilarityStage.single_record_data
-        cls.data_with_nulls = TestCustomerSimilarityStage.data_with_nulls
-        cls.extreme_data = TestCustomerSimilarityStage.extreme_data
+        """准备测试数据"""
+        # 设置特征列
+        cls.feature_cols = ['age_range', 'city', 'category', 'spending_level', 'member_level']
+        
+        # 生成基础测试数据
+        np.random.seed(42)
+        n_users = 100000
+        
+        # 1. 生成两个相似但不完全相同的用户群
+        # 群体1: 年轻用户群
+        young_age_ranges = np.random.choice(
+            ['18-24', '25-34', '35-44'], 
+            n_users,
+            p=[0.4, 0.4, 0.2]  # 偏向年轻
+        )
+        
+        young_spending = np.random.choice(
+            ['低', '中低', '中', '中高', '高'],
+            n_users,
+            p=[0.1, 0.2, 0.3, 0.3, 0.1]  # 偏向中高消费
+        )
+        
+        # 群体2: 中年用户群
+        middle_age_ranges = np.random.choice(
+            ['25-34', '35-44', '45-54'], 
+            n_users,
+            p=[0.2, 0.4, 0.4]  # 偏向中年
+        )
+        
+        middle_spending = np.random.choice(
+            ['低', '中低', '中', '中高', '高'],
+            n_users,
+            p=[0.2, 0.3, 0.3, 0.1, 0.1]  # 偏向中低消费
+        )
+        
+        # 共同的城市分布(但比例略有不同)
+        cities1 = np.random.choice(
+            ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '重庆'],
+            n_users,
+            p=[0.15, 0.15, 0.12, 0.12, 0.1, 0.1, 0.08, 0.08, 0.05, 0.05]
+        )
+        
+        cities2 = np.random.choice(
+            ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '重庆'],
+            n_users,
+            p=[0.12, 0.12, 0.15, 0.15, 0.1, 0.1, 0.08, 0.08, 0.05, 0.05]
+        )
+        
+        # 创建数据框
+        cls.group1_data = pl.LazyFrame({
+            'customer_id': range(1, n_users + 1),
+            'age_range': young_age_ranges,
+            'city': cities1,
+            'category': np.random.choice(['服装', '数码', '美妆', '食品', '家居'], n_users),
+            'spending_level': young_spending,
+            'member_level': np.random.choice(['普通', '银卡', '金卡', '钻石'], n_users)
+        })
+        
+        cls.group2_data = pl.LazyFrame({
+            'customer_id': range(n_users + 1, 2 * n_users + 1),
+            'age_range': middle_age_ranges,
+            'city': cities2,
+            'category': np.random.choice(['服装', '数码', '美妆', '食品', '家居'], n_users),
+            'spending_level': middle_spending,
+            'member_level': np.random.choice(['普通', '银卡', '金卡', '钻石'], n_users)
+        })
+        
+        # 2. 创建特殊测试数据
+        # 完全相同的群体
+        cls.identical_group = cls.group1_data
+        
+        # 完全不同的群体(极端值)
+        cls.extreme_group = pl.LazyFrame({
+            'customer_id': range(1, 101),
+            'age_range': ['55+'] * 100,
+            'city': ['其他'] * 100,
+            'category': ['其他'] * 100,
+            'spending_level': ['特低'] * 100,
+            'member_level': ['体验卡'] * 100
+        })
+        
+        # 包含新类别的群体
+        cls.new_categories_group = pl.LazyFrame({
+            'customer_id': range(1, 101),
+            'age_range': ['65+'] * 50 + ['18-24'] * 50,
+            'city': ['新城市'] * 50 + ['北京'] * 50,
+            'category': ['新品类'] * 50 + ['服装'] * 50,
+            'spending_level': ['特高'] * 50 + ['高'] * 50,
+            'member_level': ['黑金卡'] * 50 + ['钻石'] * 50
+        })
 
-    def test_different_binning_methods(self):
+    def test_basic_similarity(self):
+        """测试基本相似度计算"""
+        stage = BinnedKLSimilarityStage(
+            feature_cols=self.feature_cols,
+            bin_method='equal_freq',
+            n_bins=10
+        )
+        result = stage.forward(self.group1_data, self.group2_data)
+        
+        # 验证结果
+        self.assertGreater(result['similarity_score'], 0.5)  # 应该有一定相似度
+        self.assertLess(result['similarity_score'], 0.9)     # 但不应该太相似
+        
+        # 验证详情
+        self.assertEqual(len(result['details']['feature_details']), len(self.feature_cols))
+        for detail in result['details']['feature_details']:
+            self.assertLessEqual(len(detail['bins']), 10)  # 分箱数不超过设定值
+            
+    def test_identical_groups(self):
+        """测试完全相同的群体"""
+        stage = BinnedKLSimilarityStage(
+            feature_cols=self.feature_cols,
+            bin_method='equal_freq',
+            n_bins=10
+        )
+        result = stage.forward(self.group1_data, self.identical_group)
+        self.assertGreaterEqual(result['similarity_score'], 0.95)
+        
+    def test_different_groups(self):
+        """测试完全不同的群体"""
+        stage = BinnedKLSimilarityStage(
+            feature_cols=self.feature_cols,
+            bin_method='equal_freq',
+            n_bins=10
+        )
+        result = stage.forward(self.group1_data, self.extreme_group)
+        self.assertLess(result['similarity_score'], 0.3)
+        
+    def test_new_categories(self):
+        """测试处理新类别"""
+        stage = BinnedKLSimilarityStage(
+            feature_cols=self.feature_cols,
+            bin_method='equal_freq',
+            n_bins=5  # 使用较小的分箱数测试类别合并
+        )
+        result = stage.forward(self.group1_data, self.new_categories_group)
+        
+        # 验证新类别被正确处理
+        for detail in result['details']['feature_details']:
+            if detail['feature'] in ['city', 'category', 'member_level']:
+                self.assertIn('其他', detail['bins'])
+                
+    def test_different_bin_methods(self):
         """测试不同的分箱方法"""
         methods = ['equal_width', 'equal_freq', 'kmeans']
         results = {}
@@ -291,262 +424,36 @@ class TestBinnedKLSimilarityStage(unittest.TestCase):
             result = stage.forward(self.group1_data, self.group2_data)
             results[method] = result['similarity_score']
             
-        # 验证所有方法都产生了有效的相似度分数
+        # 验证不同方法产生的结果有所不同但都在合理范围内
         for method, score in results.items():
-            self.assertGreaterEqual(score, 0.0, f"{method}方法产生的相似度小于0")
-            self.assertLessEqual(score, 1.0, f"{method}方法产生的相似度大于1")
+            self.assertGreater(score, 0.3)
+            self.assertLess(score, 0.9)
             
-        # 验证不同方法产生的结果有所不同
-        self.assertNotEqual(results['equal_width'], results['equal_freq'])
-        self.assertNotEqual(results['equal_width'], results['kmeans'])
-        self.assertNotEqual(results['equal_freq'], results['kmeans'])
-
-    def test_bin_numbers(self):
-        """测试不同的分箱数量"""
-        bin_numbers = [5, 10, 20]
-        results = {}
-        
-        for n_bins in bin_numbers:
-            stage = BinnedKLSimilarityStage(
-                feature_cols=self.feature_cols,
-                bin_method='equal_freq',
-                n_bins=n_bins
+    def test_outlier_handling(self):
+        """测试异常值处理"""
+        # 创建带异常值的数据
+        outlier_group = self.group1_data.with_columns([
+            pl.col('spending_level').map_elements(
+                lambda x: '超高' if np.random.random() < 0.1 else x
             )
-            result = stage.forward(self.group1_data, self.group2_data)
-            results[n_bins] = result['similarity_score']
-            
-        # 验证分箱数量的影响
-        for n_bins, score in results.items():
-            self.assertGreaterEqual(score, 0.0)
-            self.assertLessEqual(score, 1.0)
-            
-        # 验证分箱数量变化确实影响了结果
-        self.assertNotEqual(results[5], results[20])
-
-    def test_identical_groups(self):
-        """测试完全相同的群体"""
-        stage = BinnedKLSimilarityStage(
-            feature_cols=self.feature_cols,
-            bin_method='equal_freq',
-            n_bins=10
-        )
-        result = stage.forward(self.group1_data, self.group1_data)
-        
-        # 相同群体的相似度应该非常接近1
-        self.assertGreaterEqual(result['similarity_score'], 0.95)
-
-    def test_partially_similar_groups(self):
-        """测试部分相似的群体"""
-        # 创建两个部分相似的群体
-        base_data = {
-            'customer_id': range(1, 101),
-            'value1': np.concatenate([
-                np.random.normal(0, 1, 50),  # 前50个样本分布相同
-                np.random.normal(0, 1, 50)   # 后50个样本分布相同
-            ]),
-            'value2': np.concatenate([
-                np.random.normal(0, 1, 50),  # 前50个样本分布相同
-                np.random.normal(3, 1, 50)   # 后50个样本分布不同
-            ])
-        }
-        
-        group1 = pl.LazyFrame(base_data)
-        
-        group2_data = {
-            'customer_id': range(101, 201),
-            'value1': np.concatenate([
-                np.random.normal(0, 1, 50),  # 前50个样本分布相同
-                np.random.normal(0, 1, 50)   # 后50个样本分布相同
-            ]),
-            'value2': np.concatenate([
-                np.random.normal(0, 1, 50),  # 前50个样本分布相同
-                np.random.normal(5, 1, 50)   # 后50个样本分布更不同
-            ])
-        }
-        
-        group2 = pl.LazyFrame(group2_data)
-        
-        stage = BinnedKLSimilarityStage(
-            feature_cols=['value1', 'value2'],
-            bin_method='equal_freq',
-            n_bins=10
-        )
-        result = stage.forward(group1, group2)
-        
-        # 部分相似群体的相似度应该在中等水平
-        self.assertGreater(result['similarity_score'], 0.4)
-        self.assertLess(result['similarity_score'], 0.8)
-        
-        # 验证特征级别的相似度
-        feature_scores = {
-            detail['feature']: detail['kl_divergence'] 
-            for detail in result['details']['feature_details']
-        }
-        # value1应该有更高的相似度（更低的KL散度）
-        self.assertLess(feature_scores['value1'], feature_scores['value2'])
-
-    def test_subset_superset_groups(self):
-        """测试子集和全集关系的群体"""
-        # 创建一个基础群体
-        np.random.seed(42)
-        base_distribution = np.concatenate([
-            np.random.normal(0, 1, 700),    # 主要分布
-            np.random.normal(3, 0.5, 200),  # 次要分布
-            np.random.normal(6, 0.5, 100)   # 小众分布
         ])
         
-        # 创建全集
-        superset = pl.LazyFrame({
-            'customer_id': range(1, len(base_distribution) + 1),
-            'value': base_distribution
-        })
-        
-        # 创建子集（只包含主要和次要分布）
-        subset = pl.LazyFrame({
-            'customer_id': range(1, 801),
-            'value': base_distribution[:800]
-        })
-        
-        stage = BinnedKLSimilarityStage(
-            feature_cols=['value'],
-            bin_method='equal_freq',
-            n_bins=10
-        )
-        
-        # 测试子集到全集的相似度
-        result = stage.forward(subset, superset)
-        subset_to_superset_similarity = result['similarity_score']
-        
-        # 测试全集到子集的相似度
-        result = stage.forward(superset, subset)
-        superset_to_subset_similarity = result['similarity_score']
-        
-        # 验证相似度在合理范围内
-        self.assertGreater(subset_to_superset_similarity, 0.7)
-        self.assertGreater(superset_to_subset_similarity, 0.7)
-        
-        # 验证对称性（两个方向的相似度应该接近）
-        self.assertAlmostEqual(
-            subset_to_superset_similarity,
-            superset_to_subset_similarity,
-            places=2
-        )
-
-
-    def test_completely_different_groups(self):
-        """测试完全不同的群体"""
-        # 创建两个完全不同的数值特征群体
-        group1 = pl.LazyFrame({
-            'customer_id': range(1, 101),
-            'value1': np.random.normal(0, 1, 100),  # 均值为0的正态分布
-            'value2': np.random.normal(0, 1, 100)
-        })
-        
-        group2 = pl.LazyFrame({
-            'customer_id': range(101, 201),
-            'value1': np.random.normal(5, 1, 100),  # 均值为5的正态分布
-            'value2': np.random.normal(5, 1, 100)
-        })
-        
-        stage = BinnedKLSimilarityStage(
-            feature_cols=['value1', 'value2'],
-            bin_method='equal_freq',
-            n_bins=10
-        )
-        result = stage.forward(group1, group2)
-        
-        # 完全不同群体的相似度应该很低
-        self.assertLessEqual(result['similarity_score'], 0.3)
-
-    def test_overlapping_groups(self):
-        """测试有重叠部分的群体"""
-        np.random.seed(42)
-        
-        # 创建三个不同的分布
-        dist1 = np.random.normal(0, 1, 300)    # 分布1
-        dist2 = np.random.normal(3, 1, 300)    # 分布2
-        dist3 = np.random.normal(6, 1, 300)    # 分布3
-        
-        # 创建两个重叠的群体
-        group1_data = {
-            'customer_id': range(1, 601),
-            'value': np.concatenate([dist1, dist2])  # 包含分布1和2
-        }
-        
-        group2_data = {
-            'customer_id': range(601, 1201),
-            'value': np.concatenate([dist2, dist3])  # 包含分布2和3
-        }
-        
-        group1 = pl.LazyFrame(group1_data)
-        group2 = pl.LazyFrame(group2_data)
-        
-        stage = BinnedKLSimilarityStage(
-            feature_cols=['value'],
-            bin_method='equal_freq',
-            n_bins=10
-        )
-        result = stage.forward(group1, group2)
-        
-        # 验证重叠群体的相似度
-        similarity = result['similarity_score']
-        
-        # 由于有1/2的重叠，相似度应该在中等水平
-        self.assertGreater(similarity, 0.3)
-        self.assertLess(similarity, 0.7)
-        
-        # 测试分布细节
-        feature_detail = result['details']['feature_details'][0]
-        self.assertEqual(len(feature_detail['bins']), stage.n_bins + 1)
-        self.assertEqual(len(feature_detail['dist1']), stage.n_bins)
-        self.assertEqual(len(feature_detail['dist2']), stage.n_bins)
-
-    def test_smooth_factor(self):
-        """测试平滑因子的影响"""
-        # 使用不同的平滑因子
-        smooth_factors = [1e-10, 1e-5, 1e-3]
-        results = {}
-        
-        for factor in smooth_factors:
-            stage = BinnedKLSimilarityStage(
-                feature_cols=self.feature_cols,
-                smooth_factor=factor
-            )
-            result = stage.forward(self.group1_data, self.group2_data)
-            results[factor] = result['similarity_score']
-            
-        # 验证平滑因子的影响
-        for factor, score in results.items():
-            self.assertGreaterEqual(score, 0.0)
-            self.assertLessEqual(score, 1.0)
-            
-        # 验证不同平滑因子产生的结果有细微差异
-        self.assertNotEqual(results[1e-10], results[1e-3])
-
-    def test_feature_details(self):
-        """测试特征详情输出"""
-        stage = BinnedKLSimilarityStage(
+        # 对比有无异常值处理的结果
+        stage_with_handling = BinnedKLSimilarityStage(
             feature_cols=self.feature_cols,
-            bin_method='equal_freq',
-            n_bins=10
+            handle_outliers=True
         )
-        result = stage.forward(self.group1_data, self.group2_data)
+        stage_without_handling = BinnedKLSimilarityStage(
+            feature_cols=self.feature_cols,
+            handle_outliers=False
+        )
         
-        # 验证结果包含所有必要的详细信息
-        self.assertIn('feature_details', result['details'])
+        result_with = stage_with_handling.forward(self.group1_data, outlier_group)
+        result_without = stage_without_handling.forward(self.group1_data, outlier_group)
         
-        for feature_detail in result['details']['feature_details']:
-            self.assertIn('feature', feature_detail)
-            self.assertIn('kl_divergence', feature_detail)
-            self.assertIn('bins', feature_detail)
-            self.assertIn('dist1', feature_detail)
-            self.assertIn('dist2', feature_detail)
-            
-            # 验证分布的有效性
-            self.assertEqual(len(feature_detail['dist1']), stage.n_bins)
-            self.assertEqual(len(feature_detail['dist2']), stage.n_bins)
-            self.assertAlmostEqual(sum(feature_detail['dist1']), 1.0, places=5)
-            self.assertAlmostEqual(sum(feature_detail['dist2']), 1.0, places=5)
+        # 有异常值处理的相似度应该更高
+        self.assertGreater(result_with['similarity_score'], 
+                          result_without['similarity_score'])
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

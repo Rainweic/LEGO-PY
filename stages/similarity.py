@@ -189,50 +189,14 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         feature_cols=[], 
         bin_method: Literal['equal_width', 'equal_freq', 'kmeans'] = 'equal_freq',
         n_bins: int = 10,
-        smooth_factor: float = 1e-10  # 平滑因子，避免出现0概率
+        smooth_factor: float = 1e-10,  # 平滑因子，避免出现0概率
+        handle_outliers: bool = False,  # 是否处理异常值
     ):
         super().__init__(feature_cols)
         self.bin_method = bin_method
         self.n_bins = n_bins
         self.smooth_factor = smooth_factor if isinstance(smooth_factor, float) else eval(smooth_factor)
-        
-    def _bin_feature(self, data1: np.ndarray, data2: np.ndarray, feature_idx: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """对特征进行分箱"""
-        # 合并数据以确定分箱边界
-        combined_data = np.concatenate([data1[:, feature_idx], data2[:, feature_idx]])
-        
-        if self.bin_method == 'equal_width':
-            bins = np.linspace(
-                combined_data.min(), 
-                combined_data.max(), 
-                self.n_bins + 1
-            )
-        elif self.bin_method == 'equal_freq':
-            bins = np.percentile(
-                combined_data,
-                np.linspace(0, 100, self.n_bins + 1)
-            )
-        elif self.bin_method == 'kmeans':
-            kmeans = KMeans(n_clusters=self.n_bins, random_state=42)
-            kmeans.fit(combined_data.reshape(-1, 1))
-            centers = np.sort(kmeans.cluster_centers_.flatten())
-            bins = np.concatenate([
-                [combined_data.min()],
-                (centers[:-1] + centers[1:]) / 2,
-                [combined_data.max()]
-            ])
-        
-        # 计算每个区间的频率
-        hist1, _ = np.histogram(data1[:, feature_idx], bins=bins, density=True)
-        hist2, _ = np.histogram(data2[:, feature_idx], bins=bins, density=True)
-        
-        # 添加平滑因子并归一化
-        hist1 = hist1 + self.smooth_factor
-        hist2 = hist2 + self.smooth_factor
-        hist1 = hist1 / hist1.sum()
-        hist2 = hist2 / hist2.sum()
-        
-        return hist1, hist2, bins
+        self.handle_outliers = handle_outliers
         
     def _calculate_kl_divergence(self, p: np.ndarray, q: np.ndarray) -> float:
         """计算KL散度"""
@@ -241,6 +205,22 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
     def _calculate_similarity(self, kl_div: float) -> float:
         """将KL散度转换为相似度分数(0-1)"""
         return 1 / (1 + kl_div)
+    
+    def _choose_bin_method(self, data: np.ndarray) -> str:
+        # 检查数据分布
+        skewness = stats.skew(data)
+        if abs(skewness) > 2:
+            return 'equal_freq'  # 偏态分布用等频分箱
+        else:
+            return 'equal_width'  # 正态分布用等宽分箱
+    
+    def _preprocess_feature(self, feat: np.ndarray) -> np.ndarray:
+        """处理异常值"""
+        q1, q3 = np.percentile(feat, [25, 75])  # 第一四分位数(25%分位点) 第三四分位数(75%分位点)
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr  # 下界 = Q1 - 1.5倍IQR
+        upper = q3 + 1.5 * iqr  # 上界 = Q3 + 1.5倍IQR
+        return np.clip(feat, lower, upper)
     
     def forward(self, group1_df: pl.LazyFrame, group2_df: pl.LazyFrame):
         """计算两个客户群的相似度"""
@@ -255,52 +235,90 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         feature_details = []
         
         for i, feature in enumerate(self.cols):
-            # 获取特征数据
             feat1 = data1.get_column(feature)
             feat2 = data2.get_column(feature)
             
-            # 对于类别特征，直接使用值作为分箱
-            if feat1.dtype in [pl.Categorical, pl.Utf8]:
-                # 获取所有可能的类别值
-                all_categories = pl.concat([
-                    feat1.unique(),
-                    feat2.unique()
-                ]).unique()
-                
-                # 如果类别数小于n_bins，使用实际类别数
-                n_bins = min(len(all_categories), self.n_bins)
-                
-                # 如果类别数大于n_bins，需要进行合并
-                if len(all_categories) > n_bins:
-                    # 可以基于频率进行合并
-                    pass
-                
-                # 计算每个类别的频率
-                hist1 = np.array([
-                    (feat1 == cat).sum() / len(feat1) 
-                    for cat in all_categories
-                ])
-                hist2 = np.array([
-                    (feat2 == cat).sum() / len(feat2)
-                    for cat in all_categories
-                ])
-                
-                # 添加平滑因子并重新归一化
-                hist1 = hist1 + self.smooth_factor
-                hist2 = hist2 + self.smooth_factor
-                hist1 = hist1 / hist1.sum()
-                hist2 = hist2 / hist2.sum()
-                
-                bins = all_categories.to_list()
-                
-            else:  # 数值特征使用指定的分箱方法
-                hist1, hist2, bins = self._bin_feature(
-                    feat1.to_numpy().reshape(-1, 1),
-                    feat2.to_numpy().reshape(-1, 1),
-                    0  # 因为是单列数据
-                )
+            # 对数值特征进行异常值处理
+            if feat1.dtype not in [pl.Categorical, pl.Utf8] and self.handle_outliers:
+                feat1 = self._preprocess_feature(feat1.to_numpy())
+                feat2 = self._preprocess_feature(feat2.to_numpy())
             
-            # 计算双向KL散度
+            # 对于类别特征
+            if feat1.dtype in [pl.Categorical, pl.Utf8]:
+                # 1. 只用group1的数据确定主要类别
+                categories = feat1.unique()
+                
+                # 2. 如果类别数大于n_bins或group2中有新类别，需要进行合并
+                group2_categories = feat2.unique()
+                new_categories_exist = any(cat not in categories for cat in group2_categories)
+                
+                if len(categories) > self.n_bins or new_categories_exist:
+                    # 计算group1中各类别的频率
+                    cat_freq = np.array([
+                        (feat1 == cat).sum() / len(feat1)
+                        for cat in categories
+                    ])
+                    # 保留频率最高的n_bins-1个类别
+                    top_n = min(self.n_bins - 1, len(categories) - 1)
+                    top_cats = categories[np.argsort(cat_freq)[-top_n:]]
+                    bins = top_cats.to_list() + ['其他']
+                else:
+                    bins = categories.to_list()
+                    top_cats = categories
+                
+                # 3. 计算两组数据在这些类别上的分布
+                hist1 = np.zeros(len(bins))
+                hist2 = np.zeros(len(bins))
+                
+                # 对group1计算分布
+                for i, cat in enumerate(bins[:-1] if '其他' in bins else bins):
+                    hist1[i] = (feat1 == cat).sum() / len(feat1)
+                # 其他类别的频率
+                if '其他' in bins:
+                    hist1[-1] = sum((feat1 == cat).sum() for cat in categories if cat not in bins[:-1]) / len(feat1)
+                
+                # 对group2计算分布(新类别归入其他)
+                for i, cat in enumerate(bins[:-1] if '其他' in bins else bins):
+                    hist2[i] = (feat2 == cat).sum() / len(feat2)
+                # 其他类别的频率(包括group2特有的类别)
+                if '其他' in bins:
+                    hist2[-1] = sum((feat2 == cat).sum() for cat in group2_categories if cat not in bins[:-1]) / len(feat2)
+                
+            else:  # 数值特征
+                # 1. 先用group1的数据确定分箱边界
+                data = feat1.to_numpy()
+                if self.bin_method == 'equal_width':
+                    bins = np.linspace(
+                        data.min(), 
+                        data.max(), 
+                        self.n_bins + 1
+                    )
+                elif self.bin_method == 'equal_freq':
+                    bins = np.percentile(
+                        data,
+                        np.linspace(0, 100, self.n_bins + 1)
+                    )
+                elif self.bin_method == 'kmeans':
+                    kmeans = KMeans(n_clusters=self.n_bins, random_state=42)
+                    kmeans.fit(data.reshape(-1, 1))
+                    centers = np.sort(kmeans.cluster_centers_.flatten())
+                    bins = np.concatenate([
+                        [data.min()],
+                        (centers[:-1] + centers[1:]) / 2,
+                        [data.max()]
+                    ])
+                
+                # 2. 用相同的分箱边界计算两组数据的分布
+                hist1, _ = np.histogram(feat1.to_numpy(), bins=bins, density=True)
+                hist2, _ = np.histogram(feat2.to_numpy(), bins=bins, density=True)
+            
+            # 添加平滑因子并归一化
+            hist1 = hist1 + self.smooth_factor
+            hist2 = hist2 + self.smooth_factor
+            hist1 = hist1 / hist1.sum()
+            hist2 = hist2 / hist2.sum()
+            
+            # 计算KL散度并存储结果
             kl_div_12 = self._calculate_kl_divergence(hist1, hist2)
             kl_div_21 = self._calculate_kl_divergence(hist2, hist1)
             avg_kl_div = (kl_div_12 + kl_div_21) / 2
