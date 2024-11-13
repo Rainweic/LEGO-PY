@@ -460,26 +460,57 @@ async def terminate_pipeline():
         except Exception as e:
             return handle_error(e)
 
-@app.route('/ray_status', methods=['GET', 'OPTIONS'])
+@app.route('/ray_status')
 def ray_status():
     """获取Ray集群状态信息"""
     if request.method == "OPTIONS":
         return handle_options_request()
     elif request.method == "GET":
         try:
-            # 获取Ray集群状态
-            actors = len(ray.state.actors())
-            tasks = len(ray.state.tasks())
+            # 检查Ray是否已初始化
+            if not ray.is_initialized():
+                return jsonify({
+                    "error": "Ray未初始化",
+                    "status": "offline",
+                    "visualization": {
+                        "type": "gauge",
+                        "data": [
+                            {"name": "CPU使用率", "value": 0},
+                            {"name": "内存使用率", "value": 0}
+                        ]
+                    }
+                }), 200
+
+            try:
+                # 获取Ray集群状态
+                actors = len(ray.state.actors())
+                tasks = len(ray.state.tasks())
+                ray_status = "online"
+            except Exception as e:
+                logging.error(f"获取Ray状态失败: {str(e)}")
+                actors = 0
+                tasks = 0
+                ray_status = "error"
             
             # 获取系统资源使用情况
-            cpu_percent = psutil.cpu_percent()
-            memory = psutil.virtual_memory()
-            memory_used = round(memory.used / 1024 / 1024 / 1024, 2)  # 转换为GB
-            memory_total = round(memory.total / 1024 / 1024 / 1024, 2)  # 转换为GB
-            memory_percent = memory.percent
+            try:
+                cpu_percent = psutil.cpu_percent(interval=1)  # 添加1秒间隔以获得更准确的值
+            except:
+                cpu_percent = 0
+                
+            try:
+                memory = psutil.virtual_memory()
+                memory_used = round(memory.used / 1024 / 1024 / 1024, 2)  # GB
+                memory_total = round(memory.total / 1024 / 1024 / 1024, 2)  # GB
+                memory_percent = memory.percent
+            except:
+                memory_used = 0
+                memory_total = 0
+                memory_percent = 0
             
             status = {
                 "ray_status": {
+                    "status": ray_status,
                     "actors": actors,
                     "tasks": tasks
                 },
@@ -492,15 +523,23 @@ def ray_status():
                     "data": [
                         {
                             "name": "CPU使用率",
-                            "value": cpu_percent
+                            "value": round(cpu_percent, 1),
+                            "min": 0,
+                            "max": 100,
+                            "format": "{value}%"
                         },
                         {
                             "name": "内存使用率",
-                            "value": memory_percent
+                            "value": round(memory_percent, 1),
+                            "min": 0,
+                            "max": 100,
+                            "format": "{value}%"
                         }
                     ]
                 }
             }
+            
+            logging.info(f"系统状态: {status}")  # 添加日志
             
             response = jsonify(status)
             origin = request.headers.get('Origin')
@@ -510,10 +549,12 @@ def ray_status():
             return response
             
         except Exception as e:
+            logging.error(f"获取系统状态失败: {str(e)}")  # 添加错误日志
             return handle_error(e)
 
 
 
 if __name__ == "__main__":
+    # ray.init()
     app.debug = True
     app.run(host='0.0.0.0', port=4242)
