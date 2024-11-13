@@ -442,7 +442,7 @@ class BinaryEval(CustomStage):
             Line()
             .add_xaxis([round(float(x), 4) for x in x_range])
             .add_yaxis(
-                "正样本",
+                "正样本[y_true==1]",
                 [round(float(y), 4) for y in pos_y],
                 symbol="none",
                 is_smooth=True,
@@ -452,7 +452,7 @@ class BinaryEval(CustomStage):
                 areastyle_opts=opts.AreaStyleOpts(opacity=0.3)
             )
             .add_yaxis(
-                "负样本",
+                "负样本[y_true==0]",
                 [round(float(y), 4) for y in neg_y],
                 symbol="none",
                 is_smooth=True,
