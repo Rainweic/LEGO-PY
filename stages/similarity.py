@@ -232,8 +232,8 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
             处理后的polars Series数据
         """
         # 计算四分位数
-        quantiles = feat.quantile([0.25, 0.75])
-        q1, q3 = quantiles[0], quantiles[1]
+        q1 = feat.quantile(0.25)
+        q3 = feat.quantile(0.75)
         
         # 计算IQR和界限
         iqr = q3 - q1
@@ -255,6 +255,9 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         feature_kl_divs = []
         feature_details = []
         
+        categorical_feats = []
+        numerical_feats = []
+
         for i, feature in enumerate(self.cols):
             feat1 = data1.get_column(feature)
             feat2 = data2.get_column(feature)
@@ -266,6 +269,9 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
             
             # 对于类别特征
             if feat1.dtype in [pl.Categorical, pl.Utf8]:
+
+                categorical_feats.append(feat1.name)
+
                 # 1. 只用group1的数据确定主要类别
                 categories = feat1.unique()
                 
@@ -306,6 +312,9 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
                     hist2[-1] = sum((feat2 == cat).sum() for cat in group2_categories if cat not in bins[:-1]) / len(feat2)
                 
             else:  # 数值特征
+
+                numerical_feats.append(feat1.name)
+
                 # 1. 先用group1的数据确定分箱边界
                 data = feat1.to_numpy()
                 if self.bin_method == 'equal_width':
@@ -349,8 +358,8 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
                 'feature': feature,
                 'kl_divergence': float(avg_kl_div),
                 'bins': bins,
-                'dist1': hist1.tolist(),
-                'dist2': hist2.tolist()
+                # 'dist1': hist1.tolist(),
+                # 'dist2': hist2.tolist()
             })
         
         # 计算总体相似度
@@ -366,7 +375,9 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
                 'feature_details': feature_details,
                 'group1_size': len(data1),
                 'group2_size': len(data2),
-                'feature_count': len(self.cols)
+                'feature_count': len(self.cols),
+                'categorical_feats': categorical_feats,
+                'numerical_feats': numerical_feats
             }
         }
         

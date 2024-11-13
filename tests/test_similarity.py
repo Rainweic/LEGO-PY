@@ -173,7 +173,7 @@ class TestCustomerSimilarityStage(unittest.TestCase):
     #         feature_cols=self.feature_cols,
     #        )
         
-    #     # 创建两个完全不同的群体
+    #     # 创建两个完全不���的群体
     #     group1 = pl.LazyFrame({
     #         'customer_id': [1, 2, 3],
     #         'age_range': ['18-24'] * 3,
@@ -431,25 +431,68 @@ class TestBinnedKLSimilarityStage(unittest.TestCase):
             
     def test_outlier_handling(self):
         """测试异常值处理"""
-        # 创建带异常值的数据
-        outlier_group = self.group1_data.with_columns([
-            pl.col('spending_level').map_elements(
-                lambda x: '超高' if np.random.random() < 0.1 else x
-            )
-        ])
+        np.random.seed(42)
+        n_users = 10000
+        
+        # 生成正常分布的数值特征
+        order_amount = np.random.normal(100, 30, n_users)  # 均值100，标准差30
+        order_count = np.random.normal(10, 3, n_users)     # 均值10，标准差3
+        avg_price = np.random.normal(50, 15, n_users)      # 均值50，标准差15
+        
+        # 创建基准数据集
+        base_data = pl.LazyFrame({
+            'customer_id': range(1, n_users + 1),
+            'order_amount': order_amount,
+            'order_count': order_count,
+            'avg_price': avg_price
+        })
+        
+        # 创建带异常值的数据集
+        # 为10%的数据添加极端值
+        outlier_amount = np.where(
+            np.random.random(n_users) < 0.1,
+            np.random.normal(1000, 300, n_users),  # 异常值：均值1000
+            np.random.normal(100, 30, n_users)     # 正常值：均值100
+        )
+        
+        outlier_count = np.where(
+            np.random.random(n_users) < 0.1,
+            np.random.normal(100, 30, n_users),    # 异常值：均值100
+            np.random.normal(10, 3, n_users)       # 正常值：均值10
+        )
+        
+        outlier_price = np.where(
+            np.random.random(n_users) < 0.1,
+            np.random.normal(500, 150, n_users),   # 异常值：均值500
+            np.random.normal(50, 15, n_users)      # 正常值：均值50
+        )
+        
+        outlier_data = pl.LazyFrame({
+            'customer_id': range(1, n_users + 1),
+            'order_amount': outlier_amount,
+            'order_count': outlier_count,
+            'avg_price': outlier_price
+        })
         
         # 对比有无异常值处理的结果
         stage_with_handling = BinnedKLSimilarityStage(
-            feature_cols=self.feature_cols,
-            handle_outliers=True
+            feature_cols=['order_amount', 'order_count', 'avg_price'],
+            handle_outliers=True,
+            n_bins=10
         )
         stage_without_handling = BinnedKLSimilarityStage(
-            feature_cols=self.feature_cols,
-            handle_outliers=False
+            feature_cols=['order_amount', 'order_count', 'avg_price'],
+            handle_outliers=False,
+            n_bins=10
         )
         
-        result_with = stage_with_handling.forward(self.group1_data, outlier_group)
-        result_without = stage_without_handling.forward(self.group1_data, outlier_group)
+        result_with = stage_with_handling.forward(base_data, outlier_data)
+        result_without = stage_without_handling.forward(base_data, outlier_data)
+        
+        # 打印详细信息以便调试
+        print("\n异常值处理测试结果:")
+        print(f"有异常值处理的相似度: {result_with['similarity_score']}")
+        print(f"无异常值处理的相似度: {result_without['similarity_score']}")
         
         # 有异常值处理的相似度应该更高
         self.assertGreater(result_with['similarity_score'], 
