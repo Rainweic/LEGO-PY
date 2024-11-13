@@ -222,6 +222,27 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         upper = q3 + 1.5 * iqr  # 上界 = Q3 + 1.5倍IQR
         return np.clip(feat, lower, upper)
     
+    def _preprocess_feature_pl(self, feat: pl.Series) -> pl.Series:
+        """使用polars处理异常值
+        
+        Args:
+            feat: polars Series数据
+            
+        Returns:
+            处理后的polars Series数据
+        """
+        # 计算四分位数
+        quantiles = feat.quantile([0.25, 0.75])
+        q1, q3 = quantiles[0], quantiles[1]
+        
+        # 计算IQR和界限
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        
+        # 使用clip裁剪异常值
+        return feat.clip(lower, upper)
+    
     def forward(self, group1_df: pl.LazyFrame, group2_df: pl.LazyFrame):
         """计算两个客户群的相似度"""
         if not self.cols:
@@ -240,8 +261,8 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
             
             # 对数值特征进行异常值处理
             if feat1.dtype not in [pl.Categorical, pl.Utf8] and self.handle_outliers:
-                feat1 = self._preprocess_feature(feat1.to_numpy())
-                feat2 = self._preprocess_feature(feat2.to_numpy())
+                feat1 = self._preprocess_feature_pl(feat1)
+                feat2 = self._preprocess_feature_pl(feat2)
             
             # 对于类别特征
             if feat1.dtype in [pl.Categorical, pl.Utf8]:
