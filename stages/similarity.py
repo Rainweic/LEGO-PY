@@ -200,7 +200,16 @@ class BinnedKLSimilarityStage(CustomerSimilarityStage):
         
     def _calculate_kl_divergence(self, p: np.ndarray, q: np.ndarray) -> float:
         """计算KL散度"""
-        return np.sum(p * np.log(p / q))
+        
+        # 计算KL散度
+        kl_div = np.sum(p * np.log(p / q))
+        
+        # 处理可能的数值问题
+        if np.isnan(kl_div) or np.isinf(kl_div):
+            self.logger.warning(f"KL散度计算异常: p={p}, q={q}, kl_div={kl_div}")
+            return 0.0
+            
+        return max(0.0, kl_div)  # 确保非负
     
     def _calculate_similarity(self, kl_div: float) -> float:
         """将KL散度转换为相似度分数(0-1)"""
