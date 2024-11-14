@@ -46,7 +46,10 @@ class PipelineActor:
             raise e
             
     def __del__(self):
-        self.loop.close()
+        try:
+            self.loop.close()
+        except Exception:
+            pass
 
 
 @app.route('/test')
@@ -144,14 +147,14 @@ def get_stage_status():
     elif request.method == "POST":
         try:
 
-            stage_names = request.json.get('stage_names')
-            job_id = request.json.get("job_id")
+            data_list = request.json.get("data")
 
             # 创建一个SQLiteCache实例
             cache = SQLiteCache()
             
             ret = {}
-            for name in stage_names:
+            for node_info in data_list:
+                name, job_id = node_info['id'], node_info['job_id']
                 # 从SQLite数据库中读取stage状态
                 status = asyncio.run(cache.read(f"{job_id}_{name}"))
             
@@ -163,7 +166,7 @@ def get_stage_status():
 
                 ret[name] = stage_status.value
 
-            logging.info(f"Job id: {job_id}, status: {ret}")
+            logging.info(f"ret: {ret}")
                 
             # 返回状态
             response = jsonify(ret)
