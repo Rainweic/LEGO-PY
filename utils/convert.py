@@ -88,7 +88,9 @@ def json2yaml(str_json, force_rerun=False, visualize=False, save_dags=True):
     sorted_nodes = topological_sort(nodes)
     stages = [{nodes[node]['stage']: nodes[node]} for node in sorted_nodes]
     
-    job_id = f"{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}"
+    _time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    _uuid = uuid.uuid4().hex[:8]
+    job_id = f"{_time}_{_uuid}"
     logging.info(f"job_id: {job_id}")
 
     yaml_content = {
