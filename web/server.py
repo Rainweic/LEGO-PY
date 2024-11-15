@@ -15,10 +15,8 @@ import asyncio
 import traceback
 import polars as pl
 import cloudpickle
-from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Process
 import ray
-
+from user_count import UserCountActor
 
 app = Flask(__name__)
 origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000", "http://10.222.107.184:8000"]
@@ -559,8 +557,70 @@ def ray_status():
             return handle_error(e)
 
 
+# 添加心跳接口
+@app.route('/user_heartbeat', methods=['POST', 'OPTIONS'])
+def user_heartbeat():
+    if request.method == "OPTIONS":
+        return handle_options_request()
+    
+    try:
+        user_id = request.json.get('user_id')
+        if not user_id:
+            return jsonify({"error": "Missing user_id"}), 400
+
+        # 更新用户活跃状态
+        count = ray.get(user_counter.heartbeat.remote(user_id))
+        
+        response = jsonify({
+            "active_users": count
+        })
+        
+        origin = request.headers.get('Origin')
+        if origin in origins:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        print(response)
+        return response
+
+    except Exception as e:
+        print(e)
+        return handle_error(e)
+
+
+# 添加获取用户数量接口
+@app.route('/user_count', methods=['GET', 'OPTIONS'])
+def get_user_count():
+    if request.method == "OPTIONS":
+        return handle_options_request()
+    
+    try:
+        count = ray.get(user_counter.get_count.remote())
+        
+        response = jsonify({
+            "active_users": count,
+            "visualization": {
+                "type": "gauge",
+                "data": [{
+                    "name": "在线用户",
+                    "value": count,
+                    "min": 0,
+                    "max": 100,  # 可以根据需要调整
+                    "format": "{value}人"
+                }]
+            }
+        })
+        
+        origin = request.headers.get('Origin')
+        if origin in origins:
+            response.headers.add("Access-Control-Allow-Origin", origin)
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+
+    except Exception as e:
+        return handle_error(e)
+
 
 if __name__ == "__main__":
-    # ray.init()
+    user_counter = UserCountActor.remote()
     app.debug = False
     app.run(host='0.0.0.0', port=4242)
