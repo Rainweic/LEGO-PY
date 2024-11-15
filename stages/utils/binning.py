@@ -3,6 +3,7 @@ from typing import Union, List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from scipy import stats
 import pandas as pd
+import polars as pl
 
 @dataclass
 class BinningResult:
@@ -42,7 +43,7 @@ class Binning:
         custom_bins: 自定义分箱点列表，如果提供则忽略method和n_bins。
                     例如：[0, 18, 30, 50, float('inf')]
         
-        min_samples: 每个分箱的最小样本占比，取值范围[0,1]，默认为0.05。
+        min_samples: 每个分箱的最小样本占比，取值范围[0,1]，默认为0.01。
                     - 在 equal_freq, chi2, mdlp 方法中生效
                     - 在 equal_width, kmeans, custom 方法中不生效
                     例如：设置为0.05时，每个分箱至少要包含5%的样本
@@ -79,14 +80,14 @@ class Binning:
         method: str = 'equal_freq',
         n_bins: int = 10,
         custom_bins: Optional[List[float]] = None,
-        min_samples: float = 0.05,
+        min_samples: float = 0.01,
         max_bins: int = 50,
         chi_merge_threshold: float = 0.1,
     ):
         self.method = method
         self.n_bins = n_bins
         self.custom_bins = custom_bins
-        self.min_samples = min_samples
+        self.min_samples = max(min_samples, 0.01)
         self.max_bins = max_bins
         self.chi_merge_threshold = chi_merge_threshold
         self.binning_result = None
@@ -116,12 +117,21 @@ class Binning:
         Returns:
             分箱边界值列表
         """
-        min_samples_count = int(len(series) * self.min_samples)
+        min_samples_count = max(int(len(series) * self.min_samples), 1)
         max_possible_bins = min(self.n_bins, len(series) // min_samples_count)
-        actual_bins = max(2, max_possible_bins)  # 至少保留2个分箱
+        actual_bins = max(2, max_possible_bins)
         
-        quantiles = np.linspace(0, 1, actual_bins + 1)
-        return list(np.quantile(series, quantiles))
+        percentiles = np.linspace(0, 100, actual_bins + 1)
+        bins = np.percentile(series, percentiles)
+        
+        bins = np.unique(bins)
+        
+        if bins[0] > np.min(series):
+            bins = np.insert(bins, 0, float('-inf'))
+        if bins[-1] < np.max(series):
+            bins = np.append(bins, float('inf'))
+            
+        return bins.tolist()
 
     def _chi2_binning(self, values: np.ndarray, target: np.ndarray) -> List[float]:
         """卡方分箱
@@ -370,6 +380,27 @@ class Binning:
         """拟合分箱器并转换数据"""
         return self.fit(values, target).transform(values, return_labels)
     
+
+def binning_categorical(series: pl.Series, n_bins: int = 10) -> List[float]:
+    """对类别特征进行分箱"""
+    # 统计频率
+    value_counts = series.value_counts().sort('count', descending=True)
+    # 前n_bins-1个类别单独成箱
+    top_categories = value_counts[:n_bins-1]
+    # 剩余类别合并为一箱
+    other_count = value_counts[n_bins-1:]['count'].sum()
+    # 准备数据
+    bins = top_categories[series.name].to_list() + ['Others']
+    counts = top_categories['count'].to_list() + [other_count]
+    return bins, counts
+
+
+if __name__ == "__main__":
+    data = pl.DataFrame({
+        'age': [100, 90, 30, 40, 50, 60, 90, 80, 90, 100]
+    })
+    bins, counts = binning_categorical(data['age'], n_bins=3)
+    print(bins, counts)
 
 """
 # 单独使用Binning类

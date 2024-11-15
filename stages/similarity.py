@@ -13,8 +13,8 @@ from scipy import stats
 
 
 class CustomerSimilarityStage(CustomStage):
-    """使用MinHash LSH计算客户群体相似度"""
-    
+    """计算客户群体相似度"""
+    # fixme
     def __init__(self, feature_cols=[]):
         super().__init__(n_outputs=0)
         self.cols = feature_cols

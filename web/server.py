@@ -388,13 +388,16 @@ def list_files():
         if os.path.exists(abs_path):
             for item in os.listdir(abs_path):
                 item_path = os.path.join(abs_path, item)
-                items.append({
-                    "name": item,
-                    "path": item_path,
-                    "type": "directory" if os.path.isdir(item_path) else "file",
-                    "size": os.path.getsize(item_path) if os.path.isfile(item_path) else None,
-                    "modified": os.path.getmtime(item_path)
-                })
+                try:
+                    items.append({
+                        "name": item,
+                        "path": item_path,
+                        "type": "directory" if os.path.isdir(item_path) else "file",
+                        "size": os.path.getsize(item_path) if os.path.isfile(item_path) else None,
+                        "modified": os.path.getmtime(item_path)
+                    })
+                except Exception as e:
+                    logging.error(f"获取文件信息失败: {str(e)}")
         
         response = jsonify({
             "current_path": abs_path,
