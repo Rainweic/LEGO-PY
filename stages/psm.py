@@ -148,10 +148,10 @@ class PSM(CustomStage):
         """使用Grid布局绘制指标水滴图"""
         # 创建一个Grid
         grid = Grid(
-            init_opts=opts.InitOpts(
-                width="1200px",
-                height="300px"  # 减小高度使图表更紧凑
-            )
+            # init_opts=opts.InitOpts(
+            #     width="1200px",
+            #     height="300px"  # 减小高度使图表更紧凑
+            # )
         )
         
         # 创建四个水滴图
@@ -172,11 +172,11 @@ class PSM(CustomStage):
                     label_opts=opts.LabelOpts(
                         font_size=20,
                         position="inside",
-                        formatter=JsCode(
-                            """function (param) {
-                                return Math.round(param.value * 100) + '%';
-                            }"""
-                        ),
+                        # formatter=JsCode(
+                        #     """function (param) {
+                        #         return Math.round(param.value * 100) + '%';
+                        #     }"""
+                        # ),
                     ),
                     color=["#294D99", "#156ACF", "#1598ED", "#45BDFF"],
                     background_color="#E1F5FE",
