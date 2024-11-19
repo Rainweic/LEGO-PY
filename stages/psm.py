@@ -13,9 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity, manhattan_distances
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import wasserstein_distance
-from scipy import stats
 from dags.stage import CustomStage
-from stages.distance_match import DistanceMatch
 
 
 class PSM(CustomStage):
