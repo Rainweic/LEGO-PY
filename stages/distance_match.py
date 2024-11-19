@@ -29,7 +29,7 @@ class DistanceMatch(CustomStage):
         self, 
         cols: list,
         proba_col: str,
-        id_col: str,
+        id_col: str = None,
         method: Literal['nearest', 'radius', 'kernel', 'stratified'] = 'nearest',
         caliper: float = 0.2,
         k: Optional[int] = None,

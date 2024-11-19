@@ -211,6 +211,8 @@ class PSM(CustomStage):
         ]
         
         for value, title, pos_left in metrics_charts:
+            if title == 'similarity':
+                title = '概率分布相似度'
             liquid = (
                 Liquid()
                 .add(
@@ -289,56 +291,75 @@ class PSM(CustomStage):
             proba = self.model.predict_proba(lz_train[self.cols])[:, 1]
             
         # 获取特征重要性
-        feature_importance = self.get_feature_importance()
-        if feature_importance:
+        self.feature_importance = self.get_feature_importance()
+        if self.feature_importance:
             importance_msg = "\n".join(
                 f"- {col}: {imp:.4f}" 
                 for col, imp in sorted(
-                    feature_importance.items(), 
+                    self.feature_importance.items(), 
                     key=lambda x: x[1], 
                     reverse=True
                 )
             )
             self.logger.info(f"特征重要性:\n{importance_msg}")
             
-        # AUC 接近0.5 说明两组人群较为相似
-        auc = roc_auc_score(lz_train["psm_label"], proba)
-
         # 获取两组的倾向性得分
         proba_A = proba[:A_length]
         proba_B = proba[A_length:]
         
-        # 计算KS统计量
-        def calculate_ks(scores_A, scores_B):
-            """计算标准化后的KS统计量
+        # 修改AUC计算方式
+        def calculate_psm_auc(scores_A, scores_B):
+            """计算PSM的AUC
             
-            Args:
-                scores_A: 处理组的倾向性得分
-                scores_B: 对照组的倾向性得分
-                
-            Returns:
-                float: 标准化的KS统计量 [0,1]
+            PSM中的AUC应该反映两组样本的区分度,而不是模型的预测能力
+            AUC接近0.5说明两组样本相似,接近1说明两组样本差异大
+            """
+            # 合并得分并创建标签
+            all_scores = np.concatenate([scores_A, scores_B])
+            labels = np.concatenate([np.ones(len(scores_A)), np.zeros(len(scores_B))])
+            
+            # 计算AUC
+            auc = roc_auc_score(labels, all_scores)
+            
+            # 标准化到[0.5, 1]区间
+            return abs(auc - 0.5) + 0.5
+        
+        # 修改KS计算方式
+        def calculate_ks(scores_A, scores_B):
+            """计算PSM的KS统计量
+            
+            KS统计量反映两个分布的最大差异
+            值越小说明两组分布越相似
             """
             # 计算经验分布函数
             def empirical_cdf(x, sample):
                 return np.sum(sample <= x) / len(sample)
             
-            # 获取所有唯一的得分点
+            # 获取所有得分点
             all_scores = np.sort(np.unique(np.concatenate([scores_A, scores_B])))
             
-            # 计算两个分布的CDF差异
-            cdf_diffs = np.array([
-                abs(empirical_cdf(x, scores_A) - empirical_cdf(x, scores_B))
-                for x in all_scores
-            ])
+            # 计算两个分布在每个点的CDF差异
+            cdf_diffs = []
+            for score in all_scores:
+                cdf_A = empirical_cdf(score, scores_A)
+                cdf_B = empirical_cdf(score, scores_B)
+                cdf_diffs.append(abs(cdf_A - cdf_B))
             
-            # 返回最大差异(KS统计量)
+            # 返回最大差异
             return np.max(cdf_diffs)
         
-        # 计算KS统计量
+        # 计算评估指标
+        auc = calculate_psm_auc(proba_A, proba_B)
         ks = calculate_ks(proba_A, proba_B)
         
-        # 评估KS值
+        # 调整评估标准
+        auc_quality = (
+            "非常相似" if auc < 0.55 else
+            "比较相似" if auc < 0.6 else
+            "差异一般" if auc < 0.65 else
+            "差异较大"
+        )
+        
         ks_quality = (
             "非常相似" if ks < 0.1 else
             "比较相似" if ks < 0.2 else
@@ -346,13 +367,13 @@ class PSM(CustomStage):
             "差异较大"
         )
         
-        self.logger.warn(f"KS统计量解释：")
-        self.logger.warn(f"- KS={ks:.4f} ({ks_quality})")
-        self.logger.warn(f"- KS < 0.1: 两组分布非常相似")
-        self.logger.warn(f"- KS < 0.2: 两组分布比较相似")
-        self.logger.warn(f"- KS < 0.3: 两组分布差异一般")
-        self.logger.warn(f"- KS >= 0.3: 两组分布差异较大")
-
+        self.logger.warn(f"PSM评估指标解释：")
+        self.logger.warn(f"- AUC={auc:.4f} ({auc_quality})")
+        self.logger.warn(f"- AUC < 0.55: 两组分布非常相似")
+        self.logger.warn(f"- AUC < 0.60: 两组分布比较相似")
+        self.logger.warn(f"- AUC < 0.65: 两组分布差异一般")
+        self.logger.warn(f"- AUC >= 0.65: 两组分布差异较大")
+        
         # 计算直方图时建议使用更稳健的方法
         min_score = min(proba[:A_length].min(), proba[A_length:].min())
         max_score = max(proba[:A_length].max(), proba[A_length:].max())
@@ -373,11 +394,11 @@ class PSM(CustomStage):
         # 重叠度计算
         overlap = np.minimum(hist_A, hist_B).sum() / np.maximum(hist_A, hist_B).sum()
 
-        # 相似度计算
+        # 概率分布相似度计算
         similarity = self.calculate_similarity(hist_A, hist_B, proba[:A_length], proba[A_length:], self.similarity_method)
 
         # 在计算完所有指标后，添加可视化
-        metrics = {
+        self.metrics = {
             'auc': auc,
             'ks': ks,
             'overlap': overlap,
@@ -386,7 +407,7 @@ class PSM(CustomStage):
         
         # 创建分布对比图和指标水滴图
         distribution_chart = self.plot_distribution(hist_A, hist_B, bins)
-        metrics_chart = self.plot_metrics(metrics)
+        metrics_chart = self.plot_metrics(self.metrics)
 
         self.summary = [{
             '模型指标': metrics_chart.dump_options_with_quotes(),
@@ -394,12 +415,9 @@ class PSM(CustomStage):
         }]
         
         # 添加更详细的评估指标解释
-        auc_quality = "差异较大" if abs(auc - 0.5) > 0.1 else "相似"
-        ks_quality = "差异较大" if ks > 0.1 else "相似"
         overlap_quality = "相似度高" if overlap > 0.8 else "相似度一般" if overlap > 0.6 else "差异较大"
         
         self.logger.warn(f"PSM评估指标解释：")
-        self.logger.warn(f"- AUC={auc:.4f} ({auc_quality})")
         self.logger.warn(f"- 分布重叠度={overlap:.4f} ({overlap_quality})")
         self.logger.warn(f"- {self.similarity_method}相似度={similarity:.4f}")
 
