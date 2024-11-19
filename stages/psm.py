@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import polars as pl
 from pyecharts import options as opts
@@ -70,7 +71,7 @@ class PSM(CustomStage):
         # 合并用户自定义参数
         self.model_params = {
             **default_params.get(model_type, {}),
-            **(model_params or {})
+            **(json.loads(model_params) if model_params else {})
         }
         
         # 初始化模型
