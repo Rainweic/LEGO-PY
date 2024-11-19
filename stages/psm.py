@@ -212,6 +212,11 @@ class PSM(CustomStage):
         return grid
 
     def forward(self, lz_A: pl.LazyFrame, lz_B: pl.LazyFrame):
+        """
+        进行倾向性得分匹配
+        A 处理组 label=1
+        B 对照组 label=0
+        """
 
         # 检查是否有缺失值
         missing_A = lz_A.filter(pl.any_horizontal(pl.col(self.cols).is_null())).collect()
@@ -273,7 +278,7 @@ class PSM(CustomStage):
         self.logger.warn(f"KS越小，表示两组分布越接近")
         self.logger.warn(f"PSM评估指标：AUC={auc:.4f}, KS={ks:.4f}, 重叠度={overlap:.4f}, 相似度={similarity:.4f}")
 
-
+        # TODO 用户匹配 & 计算匹配度
         
         
         
