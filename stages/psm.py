@@ -207,12 +207,10 @@ class PSM(CustomStage):
             (metrics['auc'], "AUC Score", "16.67%"),
             (metrics['ks'], "KS Statistic", "38.33%"),
             (metrics['overlap'], "Distribution Overlap", "61.67%"),
-            (metrics['similarity'], "Similarity Score", "83.33%")
+            (metrics['similarity'], "概率分布相似度", "83.33%")
         ]
         
         for value, title, pos_left in metrics_charts:
-            if title == 'similarity':
-                title = '概率分布相似度'
             liquid = (
                 Liquid()
                 .add(
