@@ -1,85 +1,134 @@
 import numpy as np
 import polars as pl
 from pyecharts import options as opts
-from pyecharts.charts import Line, Liquid, Page, Grid
+from pyecharts.charts import Line, Liquid, Grid
 from pyecharts.globals import ThemeType
-from pyecharts.commons.utils import JsCode
 
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+import xgboost as xgb
+# import lightgbm as lgb
+from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity, manhattan_distances
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import wasserstein_distance
+from scipy import stats
 from dags.stage import CustomStage
+from stages.distance_match import DistanceMatch
 
 
 class PSM(CustomStage):
     
-    def __init__(self, cols: list[str], need_normalize: bool = True, similarity_method: str = 'cosine', 
-                 model_params: dict = {}, *args, **kwargs):
-        super().__init__(n_outputs=0)
-        self.cols = cols                                        # 特征列    
-        self.need_normalize = need_normalize                    # 是否需要归一化/标准化
-        self.similarity_method = similarity_method              # 相似度计算方法
-
-        # 模型参数
-        self.model_params = model_params if model_params else {
-            'random_state': 42,
-            'max_iter': 1000
+    def __init__(
+        self, 
+        cols: list[str], 
+        need_normalize: bool = True,
+        similarity_method: str = 'cosine',
+        model_type: str = 'logistic',
+        model_params: dict = None,
+        *args, 
+        **kwargs
+    ):
+        super().__init__(n_outputs=2)
+        self.cols = cols
+        self.need_normalize = need_normalize
+        self.similarity_method = similarity_method
+        self.model_type = model_type
+        
+        # 默认模型参数
+        default_params = {
+            'logistic': {
+                'random_state': 42,
+                'max_iter': 1000
+            },
+            'rf': {
+                'random_state': 42,
+                'n_estimators': 100,
+                'max_depth': 5
+            },
+            'gbdt': {
+                'random_state': 42,
+                'n_estimators': 100,
+                'max_depth': 5,
+                'learning_rate': 0.1
+            },
+            'xgb': {
+                'random_state': 42,
+                'n_estimators': 100,
+                'max_depth': 5,
+                'learning_rate': 0.1,
+                'objective': 'binary:logistic'
+            },
+            'lgb': {
+                'random_state': 42,
+                'n_estimators': 100,
+                'max_depth': 5,
+                'learning_rate': 0.1,
+                'objective': 'binary'
+            }
         }
+        
+        # 合并用户自定义参数
+        self.model_params = {
+            **default_params.get(model_type, {}),
+            **(model_params or {})
+        }
+        
+        # 初始化模型
+        self.model = self._init_model()
+        self.scaler = StandardScaler() if need_normalize else None
+        
+    def _init_model(self):
+        """初始化选定的模型"""
+        if self.model_type == 'logistic':
+            return LogisticRegression(**self.model_params)
+        elif self.model_type == 'rf':
+            return RandomForestClassifier(**self.model_params)
+        elif self.model_type == 'gbdt':
+            return GradientBoostingClassifier(**self.model_params)
+        elif self.model_type == 'xgb':
+            return xgb.XGBClassifier(**self.model_params)
+        # elif self.model_type == 'lgb':
+        #     return lgb.LGBMClassifier(**self.model_params)
+        else:
+            raise ValueError(f"不支持的模型类型: {self.model_type}")
+            
+    def get_feature_importance(self):
+        """获取特征重要性"""
+        if self.model_type == 'logistic':
+            importance = np.abs(self.model.coef_[0])
+        elif self.model_type in ['rf', 'gbdt', 'xgb', 'lgb']:
+            importance = self.model.feature_importances_
+        else:
+            return None
+            
+        return dict(zip(self.cols, importance))
 
-        self.scaler = StandardScaler()
-        self.model = LogisticRegression(**self.model_params)
-
-    def calculate_similarity(self, proba_A, proba_B, method):
+    def calculate_similarity(self, hist_A, hist_B, proba_A, proba_B, method):
         """计算两组概率分布的相似度"""
-        
-        # 确保输入是一维数组
-        proba_A = np.array(proba_A).ravel()
-        proba_B = np.array(proba_B).ravel()
-        
-        # 计算直方图数据
-        # 自动确定最优bins数量
-        edges = np.histogram_bin_edges(
-            np.concatenate([proba_A, proba_B]),
-            bins='auto'  # 或者使用 'sturges', 'fd' 等方法
-        )
-        
-        # 使用相同的bins边界计算直方图
-        hist_A, _ = np.histogram(proba_A, bins=edges, density=True)
-        hist_B, _ = np.histogram(proba_B, bins=edges, density=True)
-        
-        # 将直方图数据标准化
-        hist_A = hist_A / np.sum(hist_A)
-        hist_B = hist_B / np.sum(hist_B)
-        
         if method == 'cosine':
+            # 余弦相似度已经是标准化的，范围在[-1,1]之间
             return cosine_similarity(hist_A.reshape(1, -1), hist_B.reshape(1, -1))[0][0]
         elif method == 'manhattan':
-            return 1 / (1 + manhattan_distances(hist_A.reshape(1, -1), hist_B.reshape(1, -1))[0][0])
+            # Manhattan距离需要更好的归一化
+            dist = manhattan_distances(hist_A.reshape(1, -1), hist_B.reshape(1, -1))[0][0]
+            return np.exp(-dist)  # 使用指数转换，保证结果在(0,1]之间
         elif method == 'distribution_overlap':
+            # 当前实现是正确的
             return 1 - np.mean(np.abs(hist_A - hist_B))
         elif method == 'jensen_shannon':
+            # JS散度已经是对称的，范围在[0,1]之间
             return 1 - jensenshannon(hist_A, hist_B)
         elif method == 'wasserstein':
-            # 对于Wasserstein距离，我们使用原始数据而不是直方图
-            return 1 / (1 + wasserstein_distance(proba_A, proba_B))
+            # Wasserstein距离需要更好的归一化
+            dist = wasserstein_distance(proba_A, proba_B)
+            return np.exp(-dist)  # 使用指数转换
         else:
             raise ValueError(f"不支持的相似度计算方法: {method}")
 
-    def plot_distribution(self, proba_A, proba_B):
+    def plot_distribution(self, hist_A, hist_B, edges):
         """使用pyecharts绘制概率分布对比图"""
-        # 计算直方图数据
-        # 自动确定最优bins数量
-        edges = np.histogram_bin_edges(
-            np.concatenate([proba_A, proba_B]),
-            bins='auto'  # 或者使用 'sturges', 'fd' 等方法
-        )
-        
-        # 使用相同的bins边界计算直方图
-        hist_A, _ = np.histogram(proba_A, bins=edges, density=True)
-        hist_B, _ = np.histogram(proba_B, bins=edges, density=True)
         
         # 计算中点作为x轴
         x_A = (edges[:-1] + edges[1:]) / 2
@@ -96,7 +145,7 @@ class PSM(CustomStage):
         
         # 添加种子用户分布曲线
         line.add_yaxis(
-            series_name="群体A[种子用户]",
+            series_name="实验组",
             y_axis=hist_A.tolist(),
             symbol_size=8,
             is_smooth=True,
@@ -107,7 +156,7 @@ class PSM(CustomStage):
         
         # 添加相似用户分布曲线
         line.add_yaxis(
-            series_name="群体B[相似用户]",
+            series_name="对照组",
             y_axis=hist_B.tolist(),
             symbol_size=8,
             is_smooth=True,
@@ -212,12 +261,7 @@ class PSM(CustomStage):
         return grid
 
     def forward(self, lz_A: pl.LazyFrame, lz_B: pl.LazyFrame):
-        """
-        进行倾向性得分匹配
-        A 处理组 label=1
-        B 对照组 label=0
-        """
-
+        """执行PSM匹配"""
         # 检查是否有缺失值
         missing_A = lz_A.filter(pl.any_horizontal(pl.col(self.cols).is_null())).collect()
         missing_B = lz_B.filter(pl.any_horizontal(pl.col(self.cols).is_null())).collect()
@@ -238,19 +282,100 @@ class PSM(CustomStage):
 
         # 训练模型
         self.model.fit(lz_train[self.cols], lz_train["psm_label"])
-        proba = self.model.predict_proba(lz_train[self.cols])[:, 1]
-        proba_A = proba[:A_length]
-        proba_B = proba[A_length:]
-
+        
+        # 获取预测概率
+        if self.model_type in ['xgb', 'lgb']:
+            proba = self.model.predict_proba(lz_train[self.cols])[:, 1]
+        else:
+            proba = self.model.predict_proba(lz_train[self.cols])[:, 1]
+            
+        # 获取特征重要性
+        feature_importance = self.get_feature_importance()
+        if feature_importance:
+            importance_msg = "\n".join(
+                f"- {col}: {imp:.4f}" 
+                for col, imp in sorted(
+                    feature_importance.items(), 
+                    key=lambda x: x[1], 
+                    reverse=True
+                )
+            )
+            self.logger.info(f"特征重要性:\n{importance_msg}")
+            
         # AUC 接近0.5 说明两组人群较为相似
         auc = roc_auc_score(lz_train["psm_label"], proba)
-        # KS统计量越小，表示两组分布越接近
-        fpr, tpr, _ = roc_curve(lz_train["psm_label"], proba)
-        ks = max(abs(tpr - fpr))
-        # 重叠度 越接近1，表示两组分布越接近
-        overlap = 1 - ks
+
+        # 获取两组的倾向性得分
+        proba_A = proba[:A_length]
+        proba_B = proba[A_length:]
+        
+        # 计算KS统计量
+        def calculate_ks(scores_A, scores_B):
+            """计算标准化后的KS统计量
+            
+            Args:
+                scores_A: 处理组的倾向性得分
+                scores_B: 对照组的倾向性得分
+                
+            Returns:
+                float: 标准化的KS统计量 [0,1]
+            """
+            # 计算经验分布函数
+            def empirical_cdf(x, sample):
+                return np.sum(sample <= x) / len(sample)
+            
+            # 获取所有唯一的得分点
+            all_scores = np.sort(np.unique(np.concatenate([scores_A, scores_B])))
+            
+            # 计算两个分布的CDF差异
+            cdf_diffs = np.array([
+                abs(empirical_cdf(x, scores_A) - empirical_cdf(x, scores_B))
+                for x in all_scores
+            ])
+            
+            # 返回最大差异(KS统计量)
+            return np.max(cdf_diffs)
+        
+        # 计算KS统计量
+        ks = calculate_ks(proba_A, proba_B)
+        
+        # 评估KS值
+        ks_quality = (
+            "非常相似" if ks < 0.1 else
+            "比较相似" if ks < 0.2 else
+            "差异一般" if ks < 0.3 else
+            "差异较大"
+        )
+        
+        self.logger.warn(f"KS统计量解释：")
+        self.logger.warn(f"- KS={ks:.4f} ({ks_quality})")
+        self.logger.warn(f"- KS < 0.1: 两组分布非常相似")
+        self.logger.warn(f"- KS < 0.2: 两组分布比较相似")
+        self.logger.warn(f"- KS < 0.3: 两组分布差异一般")
+        self.logger.warn(f"- KS >= 0.3: 两组分布差异较大")
+
+        # 计算直方图时建议使用更稳健的方法
+        min_score = min(proba[:A_length].min(), proba[A_length:].min())
+        max_score = max(proba[:A_length].max(), proba[A_length:].max())
+        
+        # 使用Freedman-Diaconis规则确定bin宽度
+        def get_bin_width(x):
+            iqr = np.percentile(x, 75) - np.percentile(x, 25)
+            return 2 * iqr / (len(x) ** (1/3))
+        
+        bin_width = min(get_bin_width(proba[:A_length]), get_bin_width(proba[A_length:]))
+        n_bins = int(np.ceil((max_score - min_score) / bin_width))
+        bins = np.linspace(min_score, max_score, n_bins)
+        
+        # 计算并标准化直方图
+        hist_A, _ = np.histogram(proba[:A_length], bins=bins, density=True)
+        hist_B, _ = np.histogram(proba[A_length:], bins=bins, density=True)
+
+        # 重叠度计算
+        overlap = np.minimum(hist_A, hist_B).sum() / np.maximum(hist_A, hist_B).sum()
+
         # 相似度计算
-        similarity = self.calculate_similarity(proba_A, proba_B, self.similarity_method)
+        similarity = self.calculate_similarity(hist_A, hist_B, proba[:A_length], proba[A_length:], self.similarity_method)
 
         # 在计算完所有指标后，添加可视化
         metrics = {
@@ -261,7 +386,7 @@ class PSM(CustomStage):
         }
         
         # 创建分布对比图和指标水滴图
-        distribution_chart = self.plot_distribution(proba_A, proba_B)
+        distribution_chart = self.plot_distribution(hist_A, hist_B, bins)
         metrics_chart = self.plot_metrics(metrics)
 
         self.summary = [{
@@ -269,16 +394,14 @@ class PSM(CustomStage):
             '概率分布对比': distribution_chart.dump_options_with_quotes()
         }]
         
-        # 保存图表
-        # distribution_chart.render(f"./psm_distribution.html")
-        # metrics_chart.render(f"./psm_metrics.html")
+        # 添加更详细的评估指标解释
+        auc_quality = "差异较大" if abs(auc - 0.5) > 0.1 else "相似"
+        ks_quality = "差异较大" if ks > 0.1 else "相似"
+        overlap_quality = "相似度高" if overlap > 0.8 else "相似度一般" if overlap > 0.6 else "差异较大"
         
-        # 记录评估指标
-        self.logger.warn(f"AUC接近0.5 说明两组人群较为相似")
-        self.logger.warn(f"KS越小，表示两组分布越接近")
-        self.logger.warn(f"PSM评估指标：AUC={auc:.4f}, KS={ks:.4f}, 重叠度={overlap:.4f}, 相似度={similarity:.4f}")
+        self.logger.warn(f"PSM评估指标解释：")
+        self.logger.warn(f"- AUC={auc:.4f} ({auc_quality})")
+        self.logger.warn(f"- 分布重叠度={overlap:.4f} ({overlap_quality})")
+        self.logger.warn(f"- {self.similarity_method}相似度={similarity:.4f}")
 
-        # TODO 用户匹配 & 计算匹配度
-        
-        
-        
+        return lz_A.with_columns(pl.lit(proba_A).alias("psm_score")).lazy(), lz_B.with_columns(pl.lit(proba_B).alias("psm_score")).lazy()
