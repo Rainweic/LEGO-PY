@@ -130,7 +130,10 @@ class HDFSORCReadStage(HDFSCSVReadStage):
             
             # 分块读取 ORC 文件
             for i in range(0, orc_file.nstripes):
-                batch = orc_file.read_stripe(i, columns=self.select_cols)
+                if self.select_cols:
+                    batch = orc_file.read_stripe(i, columns=self.select_cols)
+                else:
+                    batch = orc_file.read_stripe(i)
                 # 将 pyarrow Table 转换为 polars DataFrame 并追加到 df
                 df_list.append(pl.from_arrow(batch).lazy())
             
