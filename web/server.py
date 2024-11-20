@@ -243,10 +243,32 @@ async def get_output():
                 start_row = page_idx * n_rows_one_page
                 
                 def handle_column(col, dtype):
+                    """处理不同类型的列数据
+                    
+                    Args:
+                        col: 列名
+                        dtype: polars数据类型
+                    """
                     if dtype in [pl.Float32, pl.Float64, pl.Int16, pl.Int32, pl.Int64, pl.Int8]:
                         return pl.col(col).fill_nan(None)
+                    elif dtype == pl.String:
+                        return pl.col(col).fill_null("")
+                    elif isinstance(dtype, pl.List):
+                        # 处理列表类型：转换为字符串
+                        return pl.col(col).map_elements(
+                            lambda x: str(x.to_numpy().tolist()) if x is not None else "",
+                            return_dtype=pl.String
+                        ).alias(col)
+                    elif isinstance(dtype, pl.Struct):
+                        # 处理结构体类型：转换为JSON字符串
+                        return pl.col(col).cast(pl.String).fill_null("").alias(col)
                     else:
-                        return pl.col(col).fill_null("")  # 字符串类型的空值填充为空字符串
+                        # 其他类型尝试转为字符串
+                        try:
+                            return pl.col(col).cast(pl.String).fill_null("").alias(col)
+                        except:
+                            logging.warning(f"无法处理的数据类型 {dtype}，列 {col} 将被填充为空字符串")
+                            return pl.lit("").alias(col)
                 
                 data = (
                     lazy_df
