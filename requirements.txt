@@ -26,3 +26,4 @@ datasketch==1.6.5
 xxhash==3.5.0
 psutil
 ray
+lightgbm
