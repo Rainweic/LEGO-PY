@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, Response, request, jsonify, make_response
 from flask_cors import CORS
 from dags.cache import SQLiteCache
 from dags.pipeline import StageStatus
 from utils.convert import json2yaml
 from dags.parser import load_pipelines_from_yaml
 
+import io
 import os
 import math
 import psutil
@@ -17,6 +18,7 @@ import polars as pl
 import cloudpickle
 import ray
 from user_count import UserCountActor
+from output import load_output
 
 app = Flask(__name__)
 origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000", "http://10.222.107.184:8000"]
@@ -327,21 +329,6 @@ async def get_schema():
             response = jsonify({"data": "数据暂未生成"})
             logging.warning("读取数据输出失败")
 
-        # response = jsonify({
-        #                     "schema": [
-        #                         {
-        #                             "key": "mem_id",
-        #                             "name": "mem_id",
-        #                             "type": "Int64"
-        #                         },
-        #                         {
-        #                             "key": "old_price_level",
-        #                             "name": "old_price_level",
-        #                             "type": "Int64"
-        #                         }
-        #                     ]
-        #                 })
-        
         origin = request.headers.get('Origin')
         if origin in origins:
             response.headers.add("Access-Control-Allow-Origin", origin)
@@ -349,21 +336,6 @@ async def get_schema():
         return response
     except Exception as e:
         return handle_error(e)
-
-
-# def bar_base():
-#     from random import randrange
-#     from pyecharts import options as opts
-#     from pyecharts.charts import Bar
-#     c = (
-#         Bar()
-#         .add_xaxis(["衬衫", "羊毛衫", "雪纺衫", "裤子", "高跟鞋", "袜子"])
-#         .add_yaxis("商家A", [randrange(0, 100) for _ in range(6)])
-#         .add_yaxis("商家B", [randrange(0, 100) for _ in range(6)])
-#         .set_global_opts(title_opts=opts.TitleOpts(title="Bar-基本示例", subtitle="我是副标题"))
-#     )
-#     summary = c.dump_options_with_quotes()
-#     return {"hasData": True, "datas": [{"图1": summary, "图表2": summary}]}
 
 
 @app.route("/summary")
@@ -485,6 +457,7 @@ async def terminate_pipeline():
             
         except Exception as e:
             return handle_error(e)
+
 
 @app.route('/ray_status')
 def ray_status():
@@ -640,6 +613,51 @@ def get_user_count():
 
     except Exception as e:
         return handle_error(e)
+    
+
+
+@app.route('/download_output')
+async def download_output():
+    job_id = request.args.get("job_id")
+    stage_name = request.args.get("node_id")
+    output_idx = int(request.args.get("output_idx"))
+
+    try:
+        data = await load_output(job_id, stage_name, output_idx)
+    except Exception as e:
+        return handle_error(e)
+    
+    # 构建二进制响应
+    if isinstance(data, pl.DataFrame):
+        # DataFrame转parquet二进制流
+        buffer = io.BytesIO()
+        data.write_parquet(buffer)
+        buffer.seek(0)
+        binary_data = buffer.getvalue()
+        mimetype = 'application/octet-stream'
+        filename = f"{stage_name}_output_{output_idx}.parquet"
+    else:
+        # 其他数据类型转pickle二进制流
+        binary_data = pickle.dumps(data)
+        mimetype = 'application/octet-stream'
+        filename = f"{stage_name}_output_{output_idx}.pickle"
+
+    # 返回二进制流响应
+    response = Response(
+        binary_data,
+        mimetype=mimetype,
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Type": mimetype
+        }
+    )
+    
+    # 添加CORS头
+    origin = request.headers.get('Origin')
+    if origin in origins:
+        response.headers.add("Access-Control-Allow-Origin", origin)
+    response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
 
 
 if __name__ == "__main__":
