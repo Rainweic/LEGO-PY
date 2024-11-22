@@ -1,6 +1,134 @@
 import os
 import uuid
 from dags.stage import CustomStage
+from sklearn.tree import _tree
+import numpy as np
+import json
+import pickle
+import xgboost as xgb
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
+
+class LoadModel(CustomStage):
+    """加载模型"""
+
+    def __init__(self, file_path, model_type):
+        """
+        Args:
+            file_path: 模型文件路径
+            model_type: 模型类型，支持 'XGB', 'DT', 'RF'
+        """
+        super().__init__(n_outputs=1)
+        self.file_path = file_path
+        self.model_type = model_type.upper()
+
+    def _load_xgboost(self):
+        """加载XGBoost模型"""
+        file_ext = os.path.splitext(self.file_path)[1].lower()
+        
+        if file_ext == '.json':
+            # 加载JSON格式
+            with open(self.file_path, 'r') as f:
+                config = json.load(f)
+                
+            # 根据配置确定是分类还是回归
+            objective = config.get('learner', {}).get('objective', '')
+            if 'binary:' in objective or 'multi:' in objective:
+                model = xgb.XGBClassifier()
+            else:
+                model = xgb.XGBRegressor()
+            
+            model.load_model(self.file_path)
+            
+            # 提取特征名
+            feature_names = config.get('feature_names', None)
+            
+        elif file_ext == '.bin':
+            # 尝试加载为分类器
+            try:
+                model = xgb.XGBClassifier()
+                model.load_model(self.file_path)
+            except Exception:
+                # 如果失败，尝试加载为回归器
+                model = xgb.XGBRegressor()
+                model.load_model(self.file_path)
+            
+            # 尝试从模型中获取特征名
+            feature_names = getattr(model, 'feature_names_in_', None)
+            
+        else:
+            raise ValueError(f"不支持的XGBoost模型文件格式: {file_ext}")
+            
+        return model, feature_names
+
+    def _load_sklearn(self):
+        """加载sklearn模型（决策树或随机森林）"""
+        file_ext = os.path.splitext(self.file_path)[1].lower()
+        
+        if file_ext == '.pkl':
+            # 加载pickle格式
+            with open(self.file_path, 'rb') as f:
+                model = pickle.load(f)
+                
+            # 验证模型类型
+            valid_types = (
+                DecisionTreeClassifier, DecisionTreeRegressor,
+                RandomForestClassifier, RandomForestRegressor
+            )
+            
+            if not isinstance(model, valid_types):
+                raise ValueError(f"不支持的sklearn模型类型: {type(model)}")
+                
+            # 尝试从模型中获取特征名
+            feature_names = getattr(model, 'feature_names_in_', None)
+            
+        else:
+            raise ValueError(f"不支持的sklearn模型文件格式: {file_ext}")
+            
+        return model, feature_names
+
+    def forward(self):
+        """读取模型文件，返回模型字典
+        
+        Returns:
+            dict: {
+                'model': 加载的模型对象,
+                'type': 模型类型,
+                'feature_names': 特征名列表（如果有）
+            }
+        
+        Raises:
+            ValueError: 当模型类型或文件格式不支持时
+        """
+        self.logger.info(f"开始加载{self.model_type}模型: {self.file_path}")
+        
+        if not os.path.exists(self.file_path):
+            raise FileNotFoundError(f"模型文件不存在: {self.file_path}")
+            
+        try:
+            if self.model_type == 'XGB':
+                model, feature_names = self._load_xgboost()
+            elif self.model_type in ['DT', 'RF']:
+                model, feature_names = self._load_sklearn()
+            else:
+                raise ValueError(f"不支持的模型类型: {self.model_type}")
+                
+            result = {
+                'model': model,
+                'type': self.model_type,
+                'feature_names': feature_names
+            }
+            
+            self.logger.info(f"模型加载成功")
+            if feature_names:
+                self.logger.info(f"特征名: {feature_names}")
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"模型加载失败: {str(e)}")
+            raise
 
 
 class ExportModel(CustomStage):
@@ -23,4 +151,240 @@ class ExportModel(CustomStage):
 
         if model_type == 'XGB':
             model.save_model(model_name)
+
+
+class ConvertDTToSQL(CustomStage):
+    """将Sklearn训练的决策树转换成SQL语句"""
+
+    def __init__(self):
+        super().__init__(n_outputs=1)
+
+    def _tree_to_sql(self, tree, feature_names, class_names=None, prefix=""):
+        """递归将决策树转换为SQL CASE语句
         
+        Args:
+            tree: sklearn的决策树对象
+            feature_names: 特征名列表
+            class_names: 类别名列表（分类树用）
+            prefix: SQL中的表前缀
+        """
+        tree_ = tree.tree_
+        feature_name = [
+            feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
+            for i in tree_.feature
+        ]
+
+        def recurse(node, depth, sql_parts):
+            indent = "  " * depth
+            
+            if tree_.feature[node] != _tree.TREE_UNDEFINED:
+                # 非叶子节点
+                name = feature_name[node]
+                threshold = tree_.threshold[node]
+                
+                # 处理特征名
+                if prefix:
+                    name = f"{prefix}.{name}"
+                
+                sql_parts.append(f"{indent}CASE")
+                sql_parts.append(f"{indent}WHEN {name} <= {threshold:.6f} THEN")
+                
+                # 递归处理左子树
+                recurse(tree_.children_left[node], depth + 1, sql_parts)
+                
+                sql_parts.append(f"{indent}ELSE")
+                
+                # 递归处理右子树
+                recurse(tree_.children_right[node], depth + 1, sql_parts)
+                
+                sql_parts.append(f"{indent}END")
+                
+            else:
+                # 叶子节点
+                if tree_.n_outputs == 1:
+                    value = tree_.value[node][0]
+                    if tree_.n_classes[0] == 1:
+                        # 回归树
+                        sql_parts.append(f"{indent}{value[0]:.6f}")
+                    else:
+                        # 分类树
+                        if class_names is not None:
+                            class_name = class_names[np.argmax(value)]
+                        else:
+                            class_name = np.argmax(value)
+                        sql_parts.append(f"{indent}'{class_name}'")
+                else:
+                    # 多输出树
+                    sql_parts.append(f"{indent}{tree_.value[node].tolist()}")
+            
+            return sql_parts
+
+        sql_parts = []
+        sql = "\n".join(recurse(0, 1, sql_parts))
+        return sql
+
+    def forward(self, model):
+        """将决策树模型转换为SQL语句
+        
+        Args:
+            model: 包含模型的字典，格式为 {'model': sklearn_model, 'feature_names': [...], 'class_names': [...]}
+        """
+        tree_model = model['model']
+        feature_names = model.get('feature_names', None)
+        class_names = model.get('class_names', None)
+        prefix = model.get('table_prefix', '')
+        
+        # 如果没有提供特征名，使用默认的特征名 (feature_0, feature_1, ...)
+        if feature_names is None:
+            n_features = tree_model.n_features_in_
+            feature_names = [f'feature_{i}' for i in range(n_features)]
+        
+        # 转换为SQL
+        sql = self._tree_to_sql(tree_model, feature_names, class_names, prefix)
+        
+        # 添加SELECT语句
+        final_sql = f"SELECT\n{sql}\nAS prediction"
+        
+        self.logger.info("决策树已转换为SQL语句")
+        return {"type": "SQL", "model": final_sql}
+        
+
+class ConvertXGBToSQL(CustomStage):
+    """将XGBoost训练的模型转换为SQL语句"""
+
+    def __init__(self):
+        super().__init__(n_outputs=1)
+
+    def _tree_to_sql(self, tree, feature_names, prefix="", tree_index=0):
+        """将单棵XGBoost树转换为SQL CASE语句"""
+        def recurse(node, depth, sql_parts):
+            indent = "  " * depth
+            
+            # 检查是否是叶子节点
+            if 'leaf' in node:
+                # 叶子节点
+                leaf_value = float(node['leaf'])
+                sql_parts.append(f"{indent}{leaf_value:.6f}")
+                return sql_parts
+            
+            # 非叶子节点
+            split_feature = node['split']
+            if isinstance(split_feature, int):
+                feature_name = feature_names[split_feature]
+            else:
+                feature_name = split_feature
+                
+            if prefix:
+                feature_name = f"{prefix}.{feature_name}"
+                
+            threshold = float(node['split_condition'])
+            
+            sql_parts.append(f"{indent}CASE")
+            sql_parts.append(f"{indent}WHEN {feature_name} < {threshold:.6f} THEN")
+            
+            # 递归处理左子树
+            if 'children' in node:
+                left_node = node['children'][0]
+                recurse(left_node, depth + 1, sql_parts)
+                
+                sql_parts.append(f"{indent}ELSE")
+                
+                # 递归处理右子树
+                right_node = node['children'][1]
+                recurse(right_node, depth + 1, sql_parts)
+            else:
+                # 兼容旧版本的树结构
+                yes_node = node['yes']
+                no_node = node['no']
+                missing_node = node.get('missing', no_node)
+                
+                # 递归处理子节点
+                if yes_node >= 0:
+                    recurse(tree[yes_node], depth + 1, sql_parts)
+                sql_parts.append(f"{indent}ELSE")
+                if no_node >= 0:
+                    recurse(tree[no_node], depth + 1, sql_parts)
+            
+            sql_parts.append(f"{indent}END")
+            
+            return sql_parts
+            
+        sql_parts = []
+        sql = "\n".join(recurse(tree, 1, sql_parts))
+        return sql
+
+    def forward(self, model):
+        """将XGBoost模型转换为SQL语句
+        
+        Args:
+            model: 包含模型的字典，格式为 {'model': xgboost_model, 'feature_names': [...], 'class_names': [...]}
+        """
+        xgb_model = model['model']
+        # 使用传入的特征名，如果没有则使用默认特征名
+        if 'feature_names' in model:
+            feature_names = model['feature_names']
+        else:
+            n_features = xgb_model.n_features_in_
+            feature_names = [f'feature_{i}' for i in range(n_features)]
+            
+        prefix = model.get('table_prefix', '')
+        
+        # 获取模型的JSON表示
+        booster = xgb_model.get_booster()
+        model_dump = booster.get_dump(dump_format='json')
+        trees = [json.loads(tree_str) for tree_str in model_dump]
+                
+        # 转换每棵树
+        tree_sqls = []
+        base_score = getattr(xgb_model, 'base_score_', 0.5)
+        
+        for i, tree in enumerate(trees):
+            tree_sql = self._tree_to_sql(tree, feature_names, prefix, i)
+            tree_sqls.append(f"({tree_sql})")
+        
+        # 组合所有树的结果
+        if getattr(xgb_model, 'objective', None) == 'binary:logistic' or getattr(xgb_model, 'n_classes_', 2) == 2:
+            # 二分类问题：使用sigmoid函数
+            trees_sum = f"{base_score} + " + " + ".join(tree_sqls)
+            final_sql = f"""
+SELECT
+CASE 
+    WHEN 1 / (1 + EXP(-({trees_sum}))) >= 0.5 THEN 1 
+    ELSE 0 
+END AS prediction,
+1 / (1 + EXP(-({trees_sum}))) AS probability
+"""
+        elif hasattr(xgb_model, 'n_classes_') and xgb_model.n_classes_ > 2:
+            # 多分类问题：每个类别一组树
+            n_classes = xgb_model.n_classes_
+            class_predictions = []
+            for class_idx in range(n_classes):
+                class_trees = tree_sqls[class_idx::n_classes]
+                class_sum = " + ".join(class_trees)
+                class_predictions.append(f"({class_sum}) as class_{class_idx}")
+            
+            class_conditions = []
+            for i in range(n_classes):
+                other_classes = [f"class_{j}" for j in range(n_classes) if j != i]
+                class_conditions.append(
+                    f"WHEN class_{i} >= GREATEST({', '.join(other_classes)}) THEN {i}"
+                )
+            
+            final_sql = f"""
+WITH class_scores AS (
+SELECT {', '.join(class_predictions)}
+)
+SELECT 
+CASE 
+    {' '.join(class_conditions)}
+END AS prediction,
+GREATEST({', '.join(f'class_{i}' for i in range(n_classes))}) AS confidence
+FROM class_scores
+"""
+        else:
+            # 回归问题：直接相加
+            trees_sum = f"{base_score} + " + " + ".join(tree_sqls)
+            final_sql = f"SELECT ({trees_sum}) AS prediction"
+        
+        self.logger.info("XGBoost模型已转换为SQL语句")
+        return {"type": "SQL", "model": final_sql}
