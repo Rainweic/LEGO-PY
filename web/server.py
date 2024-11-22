@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*
+import json
 from flask import Flask, Response, request, jsonify, make_response
 from flask_cors import CORS
 from dags.cache import SQLiteCache
@@ -636,6 +637,16 @@ async def download_output():
         binary_data = buffer.getvalue()
         mimetype = 'application/octet-stream'
         filename = f"{stage_name}_output_{output_idx}.parquet"
+    elif isinstance(data, dict) and "model" in data.keys():
+        print(data)
+        model_type = data["type"]
+        model = data["model"]
+        if model_type == "XGB":
+            # XGB模型转json格式
+            model_type = bytes(model.save_raw())
+            binary_data = model_type
+            mimetype = 'application/octet-stream'
+            filename = f"{stage_name}_model.bin"
     else:
         # 其他数据类型转pickle二进制流
         binary_data = pickle.dumps(data)
@@ -648,7 +659,8 @@ async def download_output():
         mimetype=mimetype,
         headers={
             "Content-Disposition": f"attachment; filename={filename}",
-            "Content-Type": mimetype
+            "Content-Type": mimetype,
+            "Access-Control-Expose-Headers": "Content-Disposition",
         }
     )
     
