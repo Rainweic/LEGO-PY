@@ -256,14 +256,13 @@ class ConvertXGBToSQL(CustomStage):
     def __init__(self):
         super().__init__(n_outputs=1)
 
-    def _tree_to_sql(self, tree, feature_names, prefix="", tree_index=0):
+    def _tree_to_sql(self, tree, feature_names, tree_index=0):
         """将单棵XGBoost树转换为SQL CASE语句"""
         def recurse(node, depth, sql_parts):
             indent = "  " * depth
             
             # 检查是否是叶子节点
             if 'leaf' in node:
-                # 叶子节点
                 leaf_value = float(node['leaf'])
                 sql_parts.append(f"{indent}{leaf_value:.6f}")
                 return sql_parts
@@ -275,39 +274,29 @@ class ConvertXGBToSQL(CustomStage):
             else:
                 feature_name = split_feature
                 
-            if prefix:
-                feature_name = f"{prefix}.{feature_name}"
-                
             threshold = float(node['split_condition'])
             
             sql_parts.append(f"{indent}CASE")
-            sql_parts.append(f"{indent}WHEN {feature_name} < {threshold:.6f} THEN")
+            # 参考开源库实现，处理missing值
+            sql_parts.append(f"{indent}WHEN {feature_name} IS NULL THEN")
+            if node.get('missing', 1) == 0:  # missing值走左子树
+                if 'children' in node:
+                    recurse(node['children'][0], depth + 1, sql_parts)
+            else:  # missing值走右子树
+                if 'children' in node:
+                    recurse(node['children'][1], depth + 1, sql_parts)
             
+            sql_parts.append(f"{indent}WHEN {feature_name} < {threshold:.6f} THEN")
             # 递归处理左子树
             if 'children' in node:
-                left_node = node['children'][0]
-                recurse(left_node, depth + 1, sql_parts)
+                recurse(node['children'][0], depth + 1, sql_parts)
                 
-                sql_parts.append(f"{indent}ELSE")
-                
-                # 递归处理右子树
-                right_node = node['children'][1]
-                recurse(right_node, depth + 1, sql_parts)
-            else:
-                # 兼容旧版本的树结构
-                yes_node = node['yes']
-                no_node = node['no']
-                missing_node = node.get('missing', no_node)
-                
-                # 递归处理子节点
-                if yes_node >= 0:
-                    recurse(tree[yes_node], depth + 1, sql_parts)
-                sql_parts.append(f"{indent}ELSE")
-                if no_node >= 0:
-                    recurse(tree[no_node], depth + 1, sql_parts)
+            sql_parts.append(f"{indent}ELSE")
+            # 递归处理右子树
+            if 'children' in node:
+                recurse(node['children'][1], depth + 1, sql_parts)
             
             sql_parts.append(f"{indent}END")
-            
             return sql_parts
             
         sql_parts = []
@@ -315,82 +304,56 @@ class ConvertXGBToSQL(CustomStage):
         return sql
 
     def forward(self, model):
-        """将XGBoost模型转换为SQL语句
-        
-        Args:
-            model: 包含模型的字典，格式为 {'model': xgboost_model, 'feature_names': [...], 'class_names': [...]}
-        """
+        """将XGBoost模型转换为SQL语句"""
+        table_name = model.get('table', 'self')
         xgb_model = model['model']
-        # 使用传入的特征名，如果没有则使用默认特征名
-        if 'cols' in model:
-            feature_names = model['cols']
-        else:
-            n_features = xgb_model.n_features_in_
-            feature_names = [f'feature_{i}' for i in range(n_features)]
-            
-        prefix = model.get('table_prefix', '')
+        feature_names = model.get('cols', [])
         
         # 获取模型的JSON表示
         if isinstance(xgb_model, xgb.Booster):
             booster = xgb_model
+            config = json.loads(booster.save_config())
+            base_score = float(config['learner']['learner_model_param']['base_score'])
         else:
             booster = xgb_model.get_booster()
-            
+            base_score = getattr(xgb_model, 'base_score_', 0.5)
+        
+        # 计算base_score的对数几率
+        self.logger.info(f"base_score: {base_score}")
+        
         model_dump = booster.get_dump(dump_format='json')
         trees = [json.loads(tree_str) for tree_str in model_dump]
-                
+        
         # 转换每棵树
         tree_sqls = []
-        base_score = getattr(xgb_model, 'base_score_', 0.5)
-        
         for i, tree in enumerate(trees):
-            tree_sql = self._tree_to_sql(tree, feature_names, prefix, i)
+            tree_sql = self._tree_to_sql(tree, feature_names, i)
             tree_sqls.append(f"({tree_sql})")
         
-        # 组合所有树的结果
-        if getattr(xgb_model, 'objective', None) == 'binary:logistic' or getattr(xgb_model, 'n_classes_', 2) == 2:
-            # 二分类问题：使用sigmoid函数
-            trees_sum = f"{base_score} + " + " + ".join(tree_sqls)
-            final_sql = f"""
+        # 修改SQL计算逻辑：
+        # 1. 计算base_score的对数几率
+        # 2. 直接将树的结果相加（不需要学习率）
+        # 3. 应用sigmoid函数得到最终概率
+        final_sql = f"""
+WITH tree_scores AS (
+    SELECT 
+        LN({base_score} / (1 - {base_score})) as base_logit,
+        {" + ".join(tree_sqls)} as tree_sum
+    FROM {table_name}
+),
+margin AS (
+    SELECT 
+        base_logit + tree_sum as margin_value
+    FROM tree_scores
+)
 SELECT
 CASE 
-    WHEN 1 / (1 + EXP(-({trees_sum}))) >= 0.5 THEN 1 
+    WHEN 1 / (1 + EXP(-margin_value)) >= 0.5 THEN 1 
     ELSE 0 
 END AS prediction,
-1 / (1 + EXP(-({trees_sum}))) AS probability
+1 / (1 + EXP(-margin_value)) AS probability
+FROM margin
 """
-        elif hasattr(xgb_model, 'n_classes_') and xgb_model.n_classes_ > 2:
-            # 多分类问题：每个类别一组树
-            n_classes = xgb_model.n_classes_
-            class_predictions = []
-            for class_idx in range(n_classes):
-                class_trees = tree_sqls[class_idx::n_classes]
-                class_sum = " + ".join(class_trees)
-                class_predictions.append(f"({class_sum}) as class_{class_idx}")
-            
-            class_conditions = []
-            for i in range(n_classes):
-                other_classes = [f"class_{j}" for j in range(n_classes) if j != i]
-                class_conditions.append(
-                    f"WHEN class_{i} >= GREATEST({', '.join(other_classes)}) THEN {i}"
-                )
-            
-            final_sql = f"""
-WITH class_scores AS (
-SELECT {', '.join(class_predictions)}
-)
-SELECT 
-CASE 
-    {' '.join(class_conditions)}
-END AS prediction,
-GREATEST({', '.join(f'class_{i}' for i in range(n_classes))}) AS confidence
-FROM class_scores
-"""
-        else:
-            # 回归问题：直接相加
-            trees_sum = f"{base_score} + " + " + ".join(tree_sqls)
-            final_sql = f"SELECT ({trees_sum}) AS prediction"
         
         self.logger.info("XGBoost模型已转换为SQL语句")
-        self.logger.info(final_sql)
         return {"type": "SQL", "model": final_sql}
