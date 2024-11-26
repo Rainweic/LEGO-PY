@@ -647,6 +647,10 @@ async def download_output():
             binary_data = model_type
             mimetype = 'application/octet-stream'
             filename = f"{stage_name}_model.bin"
+        elif model_type == "SQL":
+            binary_data = model
+            mimetype = 'text/plain'
+            filename = f"{stage_name}_model.sql"
     else:
         # 其他数据类型转pickle二进制流
         binary_data = pickle.dumps(data)

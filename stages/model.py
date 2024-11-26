@@ -246,6 +246,7 @@ class ConvertDTToSQL(CustomStage):
         final_sql = f"SELECT\n{sql}\nAS prediction"
         
         self.logger.info("决策树已转换为SQL语句")
+        self.logger.info(final_sql)
         return {"type": "SQL", "model": final_sql}
         
 
@@ -321,8 +322,8 @@ class ConvertXGBToSQL(CustomStage):
         """
         xgb_model = model['model']
         # 使用传入的特征名，如果没有则使用默认特征名
-        if 'feature_names' in model:
-            feature_names = model['feature_names']
+        if 'cols' in model:
+            feature_names = model['cols']
         else:
             n_features = xgb_model.n_features_in_
             feature_names = [f'feature_{i}' for i in range(n_features)]
@@ -330,7 +331,11 @@ class ConvertXGBToSQL(CustomStage):
         prefix = model.get('table_prefix', '')
         
         # 获取模型的JSON表示
-        booster = xgb_model.get_booster()
+        if isinstance(xgb_model, xgb.Booster):
+            booster = xgb_model
+        else:
+            booster = xgb_model.get_booster()
+            
         model_dump = booster.get_dump(dump_format='json')
         trees = [json.loads(tree_str) for tree_str in model_dump]
                 
@@ -387,4 +392,5 @@ FROM class_scores
             final_sql = f"SELECT ({trees_sum}) AS prediction"
         
         self.logger.info("XGBoost模型已转换为SQL语句")
+        self.logger.info(final_sql)
         return {"type": "SQL", "model": final_sql}
