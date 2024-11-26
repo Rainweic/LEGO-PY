@@ -340,7 +340,7 @@ class ConvertXGBToSQL(CustomStage):
         final_sql = f"""
 WITH tree_scores AS (
     SELECT 
-        {", ".join(self.keep_cols)}
+        {", ".join(self.keep_cols)},
         LN({base_score} / (1 - {base_score})) as base_logit,
         {" + ".join(tree_sqls)} as tree_sum
     FROM {self.table_name}
