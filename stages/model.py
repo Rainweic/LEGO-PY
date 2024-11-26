@@ -253,8 +253,10 @@ class ConvertDTToSQL(CustomStage):
 class ConvertXGBToSQL(CustomStage):
     """将XGBoost训练的模型转换为SQL语句"""
 
-    def __init__(self):
+    def __init__(self, table_name: str = 'self', keep_cols: list = []):
         super().__init__(n_outputs=1)
+        self.table_name = table_name
+        self.keep_cols = keep_cols
 
     def _tree_to_sql(self, tree, feature_names, tree_index=0):
         """将单棵XGBoost树转换为SQL CASE语句"""
@@ -305,9 +307,10 @@ class ConvertXGBToSQL(CustomStage):
 
     def forward(self, model):
         """将XGBoost模型转换为SQL语句"""
-        table_name = model.get('table', 'self')
         xgb_model = model['model']
         feature_names = model.get('cols', [])
+
+        self.logger.info(f"需要保留的列名: {self.keep_cols}")
         
         # 获取模型的JSON表示
         if isinstance(xgb_model, xgb.Booster):
@@ -337,21 +340,24 @@ class ConvertXGBToSQL(CustomStage):
         final_sql = f"""
 WITH tree_scores AS (
     SELECT 
+        {", ".join(self.keep_cols)}
         LN({base_score} / (1 - {base_score})) as base_logit,
         {" + ".join(tree_sqls)} as tree_sum
-    FROM {table_name}
+    FROM {self.table_name}
 ),
 margin AS (
     SELECT 
+        {", ".join(self.keep_cols)},
         base_logit + tree_sum as margin_value
     FROM tree_scores
 )
 SELECT
-CASE 
-    WHEN 1 / (1 + EXP(-margin_value)) >= 0.5 THEN 1 
-    ELSE 0 
-END AS prediction,
-1 / (1 + EXP(-margin_value)) AS probability
+    {", ".join(self.keep_cols)},
+    CASE 
+        WHEN 1 / (1 + EXP(-margin_value)) >= 0.5 THEN 1 
+        ELSE 0 
+    END AS prediction,
+    1 / (1 + EXP(-margin_value)) AS probability
 FROM margin
 """
         
