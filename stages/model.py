@@ -253,10 +253,11 @@ class ConvertDTToSQL(CustomStage):
 class ConvertXGBToSQL(CustomStage):
     """将XGBoost训练的模型转换为SQL语句"""
 
-    def __init__(self, table_name: str = 'self', keep_cols: list = []):
+    def __init__(self, table_name: str = 'self', keep_cols: list = [], threshold: float = 0.5):
         super().__init__(n_outputs=1)
         self.table_name = table_name
         self.keep_cols = keep_cols
+        self.threshold = threshold
 
     def _tree_to_sql(self, tree, feature_names, tree_index=0):
         """将单棵XGBoost树转换为SQL CASE语句"""
@@ -354,7 +355,7 @@ margin AS (
 SELECT
     {", ".join(self.keep_cols)},
     CASE 
-        WHEN 1 / (1 + EXP(-margin_value)) >= 0.5 THEN 1 
+        WHEN 1 / (1 + EXP(-margin_value)) >= {self.threshold} THEN 1 
         ELSE 0 
     END AS prediction,
     1 / (1 + EXP(-margin_value)) AS probability
