@@ -638,7 +638,6 @@ async def download_output():
         mimetype = 'application/octet-stream'
         filename = f"{stage_name}_output_{output_idx}.parquet"
     elif isinstance(data, dict) and "model" in data.keys():
-        print(data)
         model_type = data["type"]
         model = data["model"]
         if model_type == "XGB":
@@ -651,6 +650,11 @@ async def download_output():
             binary_data = model
             mimetype = 'text/plain'
             filename = f"{stage_name}_model.sql"
+    elif isinstance(data, dict) and data["type"] == "file":
+        if data["file_type"] == "excel":
+            binary_data = open(data["file_path"], "rb").read()
+            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            filename = f"{stage_name}_report.xlsx"
     else:
         # 其他数据类型转pickle二进制流
         binary_data = pickle.dumps(data)
