@@ -27,3 +27,4 @@ xxhash==3.5.0
 psutil
 ray
 lightgbm
+openpyxl

@@ -16,39 +16,24 @@ class AnalysisReporter(CustomStage):
         
     def forward(self):
         local_path = hdfs_download(self.logger, self.csv_path, self.recover)
-        df = pd.read_csv(local_path)
-        color_cols = [col for col in df.columns if "diff" in col]
+        local_path = os.path.join(local_path, self.date)
+        local_path_csv = [f for f in os.listdir(local_path) if f.endswith('.csv')][0]
+        df = pd.read_csv(os.path.join(local_path, local_path_csv))
+
+        df["diff_饮品用户数百分比"] = df["diff_饮品用户数"] / df["对照组饮品用户数"]
+        df["diff_饮品数百分比"] = df["diff_饮品数"] / df["对照组饮品数"]
+        color_cols = ["diff_饮品用户数", "diff_饮品数", "diff_饮品用户数百分比", "diff_饮品数百分比"]
+      
+        styled_df = df.style.format('{:.3f}', subset=color_cols, na_rep="")\
+            .bar(subset=color_cols, align=0, vmin=-2.5, vmax=2.5, cmap="bwr",
+                 props="width: 120px; position: relative; padding: 0px 4px;")\
+            .set_properties(**{'color': 'black', 'position': 'relative', 'z-index': 1})\
+            .text_gradient(subset=color_cols, cmap="bwr", vmin=-2.5, vmax=2.5)
         
-        # 计算每列的最大绝对值
-        max_abs_values = {col: df[col].abs().max() for col in color_cols}
-        
-        def color_negative_red(val, col):
-            """
-            根据数值设置颜色:
-            - 正值: 绿色 (#00FF00)
-            - 负值: 红色 (#FF0000)
-            透明度根据该列最大绝对值计算
-            """
-            if pd.isna(val):
-                return ''
-            
-            # 使用当前列的最大绝对值作为分母
-            alpha = min(abs(val) / max_abs_values[col], 1.0)
-            
-            if val > 0:
-                return f'background-color: rgba(0, 255, 0, {alpha})'
-            else:
-                return f'background-color: rgba(255, 0, 0, {alpha})'
-        
-        # 为每列分别应用样式
-        styled_df = df.style
-        for col in color_cols:
-            styled_df = styled_df.applymap(
-                lambda x, c=col: color_negative_red(x, c), 
-                subset=[col]
-            )
-        
-        output_path = os.path.join(CACHE_PATH, self._job_id, "out_files", f"{self.experiment_name}_{self.date}_report.xlsx")
+        save_dir = os.path.join(CACHE_PATH, self._job_id, "out_files")
+        os.makedirs(save_dir, exist_ok=True)
+        output_path = os.path.join(save_dir, f"{self.experiment_name}_{self.date}_report.xlsx")
+        self.logger.info(f"Saving report to {output_path}")
         styled_df.to_excel(output_path, index=False, engine='openpyxl')
         
         return {"type": "file", "file_type": "excel", "file_path": output_path}
