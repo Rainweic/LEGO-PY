@@ -193,8 +193,8 @@ async def get_cpm_log():
         pipeline_log_path = os.path.join(base_path, "pipeline.log")
 
         # 读取日志内容
-        stage_log_content = "不存在"
-        pipeline_log_content = "不存在"
+        stage_log_content = "日志不存在"
+        pipeline_log_content = "日志不存在"
         if os.path.exists(stage_log_path):
             with open(stage_log_path, "r") as f:
                 stage_log_content = f.read()
