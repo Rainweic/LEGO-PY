@@ -69,9 +69,8 @@ class PSMMatch(CustomStage):
         matched_B_idx = []
         used_B = np.zeros(len(X_B), dtype=bool)
         
-        # 使用numpy的布尔索引加速匹配过程
+        # 修改匹配逻辑
         for i in range(len(X_A)):
-            # 获取当前A样本的所有候选B样本
             candidates = sorted_indices[i]
             
             # 找出未使用且距离在阈值内的B样本
@@ -80,15 +79,15 @@ class PSMMatch(CustomStage):
                 (distances[i, candidates] <= self.caliper)
             ]
             
-            # 如果找到足够的匹配样本
-            if len(valid_candidates) >= self.k:
-                for j in valid_candidates[:self.k]:
-                    matched_pairs.append((ids_A[i], ids_B[j]))
-                    matched_A_idx.append(i)
-                    matched_B_idx.append(j)
-                    used_B[j] = True
+            # 只选择一个最近的匹配样本
+            if len(valid_candidates) > 0:  # 只要有有效候选即可
+                j = valid_candidates[0]  # 取第一个（最近的）候选
+                matched_pairs.append((ids_A[i], ids_B[j]))
+                matched_A_idx.append(i)
+                matched_B_idx.append(j)
+                used_B[j] = True
                 
-            if used_B.sum() + self.k > len(X_B):
+            if used_B.sum() >= len(X_B):
                 break
 
         return matched_pairs, matched_A_idx, matched_B_idx
@@ -299,7 +298,7 @@ class PSMMatch(CustomStage):
         matched_pairs, matched_A_idx, matched_B_idx = match_methods[self.method](proba_A, proba_B, ids_A, ids_B)
 
         self.logger.warning("""Tips: 
-        p > 0.1：匹配效果很好
+        p > 0.1���匹配效果很好
         0.05 < p < 0.1：匹配效果可以接受
         0.01 < p < 0.05：匹配效果一般
         p < 0.01：匹配效果差""")
@@ -354,8 +353,8 @@ class PSMMatch(CustomStage):
             self.logger.info(f"SMD改善程度: {smd_improvement:.2f}%")
             
             # 绘制分布图的代码保持不变
-            before_match_chart = plot_hist_compare(A_feature_data, B_feature_data, title=f"{col}匹配前分布")
-            after_match_chart = plot_hist_compare(A_matched_data, B_matched_data, title=f"{col}匹配后分布")
+            before_match_chart = plot_hist_compare(A_feature_data, B_feature_data, title=f"")
+            after_match_chart = plot_hist_compare(A_matched_data, B_matched_data, title=f"")
             
             # Chart绘制图表
             grid = (
@@ -363,7 +362,7 @@ class PSMMatch(CustomStage):
                 .add(before_match_chart, grid_opts=opts.GridOpts(pos_left="5%", pos_right="55%"))
                 .add(after_match_chart, grid_opts=opts.GridOpts(pos_left="55%", pos_right="5%"))
             )
-            self.summary.append({f"{col}分布对比": grid.dump_options_with_quotes()})
+            self.summary.append({f"{col}匹配前后分布对比": grid.dump_options_with_quotes()})
         
         # 记录详细的匹配结果
         self.logger.info(f"匹配方法: {self.method}")
@@ -378,7 +377,5 @@ class PSMMatch(CustomStage):
             '实验组-倾向得分': [float(proba_A[matched_A_idx[i]][0]) for i in range(len(matched_pairs))],
             '对照组-倾向得分': [float(proba_B[matched_B_idx[i]][0]) for i in range(len(matched_pairs))]
         })
-
-        print(matched_df)
         
         return matched_df.lazy()
