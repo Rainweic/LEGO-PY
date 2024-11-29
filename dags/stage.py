@@ -379,6 +379,7 @@ class BaseStage(Stage, PickleSerializer, SQLiteCache):
                 await self.write(o_n, outs)
             else:
                 for o_n, o in zip(self.output_data_names, outs):
+                    self.logger.info(f"Stage: {self.name} 写入输出数据: {o_n}")
                     # print(o.collect())
                     # if self._collect_result and isinstance(o, pl.LazyFrame):
                     if isinstance(o, pl.LazyFrame):

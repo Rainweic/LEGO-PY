@@ -252,6 +252,7 @@ async def get_output():
                         col: 列名
                         dtype: polars数据类型
                     """
+                    print(dtype)
                     if dtype in [pl.Float32, pl.Float64, pl.Int16, pl.Int32, pl.Int64, pl.Int8]:
                         return pl.col(col).fill_nan(None)
                     elif dtype == pl.String:

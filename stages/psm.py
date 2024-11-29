@@ -2,8 +2,7 @@ import json
 import numpy as np
 import polars as pl
 from pyecharts import options as opts
-from pyecharts.charts import Line, Liquid, Grid
-from pyecharts.globals import ThemeType
+from pyecharts.charts import Liquid, Grid
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -15,6 +14,7 @@ from sklearn.metrics.pairwise import cosine_similarity, manhattan_distances
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import wasserstein_distance
 from dags.stage import CustomStage
+from stages.utils.plot_img import plot_proba_distribution
 
 
 class PSM(CustomStage):
@@ -23,7 +23,6 @@ class PSM(CustomStage):
         self, 
         cols: list[str], 
         need_normalize: bool = True,
-        similarity_method: str = 'cosine',
         model_type: str = 'logistic',
         model_params: dict = None,
         *args, 
@@ -32,7 +31,6 @@ class PSM(CustomStage):
         super().__init__(n_outputs=2)
         self.cols = cols
         self.need_normalize = need_normalize
-        self.similarity_method = similarity_method
         self.model_type = model_type
         
         # 默认模型参数
@@ -126,139 +124,6 @@ class PSM(CustomStage):
         else:
             raise ValueError(f"不支持的相似度计算方法: {method}")
 
-    def plot_distribution(self, hist_A, hist_B, edges):
-        """使用pyecharts绘制概率分布对比图"""
-        
-        # 计算中点作为x轴
-        x_A = (edges[:-1] + edges[1:]) / 2
-        
-        line = Line(
-            init_opts=opts.InitOpts(
-                theme=ThemeType.LIGHT,
-                width="900px",
-                height="500px"
-            )
-        )
-        
-        line.add_xaxis(xaxis_data=[f"{x:.3f}" for x in x_A])
-        
-        # 添加种子用户分布曲线
-        line.add_yaxis(
-            series_name="实验组",
-            y_axis=hist_A.tolist(),
-            symbol_size=8,
-            is_smooth=True,
-            areastyle_opts=opts.AreaStyleOpts(opacity=0.3),
-            label_opts=opts.LabelOpts(is_show=False),
-            linestyle_opts=opts.LineStyleOpts(width=2)
-        )
-        
-        # 添加相似用户分布曲线
-        line.add_yaxis(
-            series_name="对照组",
-            y_axis=hist_B.tolist(),
-            symbol_size=8,
-            is_smooth=True,
-            areastyle_opts=opts.AreaStyleOpts(opacity=0.3),
-            label_opts=opts.LabelOpts(is_show=False),
-            linestyle_opts=opts.LineStyleOpts(width=2)
-        )
-        
-        # 设置全局选项
-        line.set_global_opts(
-            title_opts=opts.TitleOpts(
-                title="PSM概率分布对比",
-                pos_left="center"
-            ),
-            tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross"),
-            xaxis_opts=opts.AxisOpts(
-                name="Propensity Score",
-                name_location="center",
-                name_gap=35,
-                splitline_opts=opts.SplitLineOpts(is_show=True)
-            ),
-            yaxis_opts=opts.AxisOpts(
-                name="密度",
-                name_location="center",
-                name_gap=40,
-                splitline_opts=opts.SplitLineOpts(is_show=True)
-            ),
-            legend_opts=opts.LegendOpts(pos_top="5%"),
-            datazoom_opts=[
-                opts.DataZoomOpts(range_start=0, range_end=100),
-                opts.DataZoomOpts(type_="inside")
-            ],
-        )
-        
-        return line
-
-    def plot_metrics(self, metrics):
-        """使用Grid布局绘制指标水滴图"""
-        # 创建一个Grid
-        grid = Grid(
-            # init_opts=opts.InitOpts(
-            #     width="1200px",
-            #     height="300px"  # 减小高度使图表更紧凑
-            # )
-        )
-        
-        # 创建四个水滴图
-        metrics_charts = [
-            (metrics['auc'], "AUC Score", "16.67%"),
-            (metrics['ks'], "KS Statistic", "38.33%"),
-            (metrics['overlap'], "Distribution Overlap", "61.67%"),
-            (metrics['similarity'], "概率分布相似度", "83.33%")
-        ]
-        
-        for value, title, pos_left in metrics_charts:
-            liquid = (
-                Liquid()
-                .add(
-                    series_name=title,
-                    data=[value],
-                    center=[pos_left, "50%"],  # 使用center参数定位
-                    label_opts=opts.LabelOpts(
-                        font_size=20,
-                        position="inside",
-                        # formatter=JsCode(
-                        #     """function (param) {
-                        #         return Math.round(param.value * 100) + '%';
-                        #     }"""
-                        # ),
-                    ),
-                    color=["#294D99", "#156ACF", "#1598ED", "#45BDFF"],
-                    background_color="#E1F5FE",
-                    outline_itemstyle_opts=opts.ItemStyleOpts(
-                        border_color="#E1F5FE",
-                        border_width=3
-                    )
-                )
-                .set_global_opts(
-                    title_opts=opts.TitleOpts(
-                        title=title,
-                        pos_left=pos_left,
-                        pos_bottom="10%",
-                        title_textstyle_opts=opts.TextStyleOpts(
-                            font_size=14,
-                            color="#000"
-                        )
-                    )
-                )
-            )
-            
-            # 添加到Grid中，使用相对位置
-            grid.add(
-                liquid,
-                grid_opts=opts.GridOpts(
-                    pos_left=pos_left,
-                    pos_right=f"{100 - float(pos_left.strip('%')) - 16.67}%",
-                    pos_top="15%",
-                    pos_bottom="15%"
-                )
-            )
-        
-        return grid
-
     def forward(self, lz_A: pl.LazyFrame, lz_B: pl.LazyFrame):
         """执行PSM匹配"""
         # 检查是否有缺失值
@@ -267,12 +132,17 @@ class PSM(CustomStage):
 
         if not missing_A.is_empty() or not missing_B.is_empty():
             self.logger.error("输入数据存在缺失值，请注意处理")
+            self.logger.error(f"实验组缺失值数据: {missing_A}")
+            self.logger.error(f"对照组缺失值数据: {missing_B}")
             raise ValueError("输入数据存在缺失值，请注意处理")
 
         # 将lz_A和lz_B拼接在一起
+        self.logger.info("将群体A设置为实验组")
         lz_A = lz_A.with_columns(pl.lit(1).alias("psm_label"))
+        self.logger.info("将群体B设置为对照组")
         lz_B = lz_B.with_columns(pl.lit(0).alias("psm_label"))
         A_length = lz_A.select(pl.count()).collect().item()
+        B_length = lz_B.select(pl.count()).collect().item()
         lz_train = pl.concat([lz_A, lz_B]).select(self.cols + ["psm_label"]).collect()
 
         if self.need_normalize:
@@ -280,6 +150,7 @@ class PSM(CustomStage):
             lz_train[self.cols] = self.scaler.fit_transform(lz_train[self.cols])
 
         # 训练模型
+        self.logger.info(f"训练模型, 特征: {self.cols}, 实验组样本数: {A_length}, 对照组样本数: {B_length}")
         self.model.fit(lz_train[self.cols], lz_train["psm_label"])
         
         # 获取预测概率
@@ -300,123 +171,17 @@ class PSM(CustomStage):
                 )
             )
             self.logger.info(f"特征重要性:\n{importance_msg}")
-            
+
         # 获取两组的倾向性得分
         proba_A = proba[:A_length]
         proba_B = proba[A_length:]
-        
-        # 修改AUC计算方式
-        def calculate_psm_auc(scores_A, scores_B):
-            """计算PSM的AUC
-            
-            PSM中的AUC应该反映两组样本的区分度,而不是模型的预测能力
-            AUC接近0.5说明两组样本相似,接近1说明两组样本差异大
-            """
-            # 合并得分并创建标签
-            all_scores = np.concatenate([scores_A, scores_B])
-            labels = np.concatenate([np.ones(len(scores_A)), np.zeros(len(scores_B))])
-            
-            # 计算AUC
-            auc = roc_auc_score(labels, all_scores)
-            
-            # 标准化到[0.5, 1]区间
-            return abs(auc - 0.5) + 0.5
-        
-        # 修改KS计算方式
-        def calculate_ks(scores_A, scores_B):
-            """计算PSM的KS统计量
-            
-            KS统计量反映两个分布的最大差异
-            值越小说明两组分布越相似
-            """
-            # 计算经验分布函数
-            def empirical_cdf(x, sample):
-                return np.sum(sample <= x) / len(sample)
-            
-            # 获取所有得分点
-            all_scores = np.sort(np.unique(np.concatenate([scores_A, scores_B])))
-            
-            # 计算两个分布在每个点的CDF差异
-            cdf_diffs = []
-            for score in all_scores:
-                cdf_A = empirical_cdf(score, scores_A)
-                cdf_B = empirical_cdf(score, scores_B)
-                cdf_diffs.append(abs(cdf_A - cdf_B))
-            
-            # 返回最大差异
-            return np.max(cdf_diffs)
-        
-        # 计算评估指标
-        auc = calculate_psm_auc(proba_A, proba_B)
-        ks = calculate_ks(proba_A, proba_B)
-        
-        # 调整评估标准
-        auc_quality = (
-            "非常相似" if auc < 0.55 else
-            "比较相似" if auc < 0.6 else
-            "差异一般" if auc < 0.65 else
-            "差异较大"
-        )
-        
-        ks_quality = (
-            "非常相似" if ks < 0.1 else
-            "比较相似" if ks < 0.2 else
-            "差异一般" if ks < 0.3 else
-            "差异较大"
-        )
-        
-        self.logger.warn(f"PSM评估指标解释：")
-        self.logger.warn(f"- AUC={auc:.4f} ({auc_quality})")
-        self.logger.warn(f"- AUC < 0.55: 两组分布非常相似")
-        self.logger.warn(f"- AUC < 0.60: 两组分布比较相似")
-        self.logger.warn(f"- AUC < 0.65: 两组分布差异一般")
-        self.logger.warn(f"- AUC >= 0.65: 两组分布差异较大")
-        
-        # 计算直方图时建议使用更稳健的方法
-        min_score = min(proba[:A_length].min(), proba[A_length:].min())
-        max_score = max(proba[:A_length].max(), proba[A_length:].max())
-        
-        # 使用Freedman-Diaconis规则确定bin宽度
-        def get_bin_width(x):
-            iqr = np.percentile(x, 75) - np.percentile(x, 25)
-            return 2 * iqr / (len(x) ** (1/3))
-        
-        bin_width = min(get_bin_width(proba[:A_length]), get_bin_width(proba[A_length:]))
-        n_bins = int(np.ceil((max_score - min_score) / bin_width))
-        bins = np.linspace(min_score, max_score, n_bins)
-        
-        # 计算并标准化直方图
-        hist_A, _ = np.histogram(proba[:A_length], bins=bins, density=True)
-        hist_B, _ = np.histogram(proba[A_length:], bins=bins, density=True)
 
-        # 重叠度计算
-        overlap = np.minimum(hist_A, hist_B).sum() / np.maximum(hist_A, hist_B).sum()
+        self.logger.info(f"实验组倾向得分范围: {proba_A.min()} ~ {proba_A.max()}")
+        self.logger.info(f"对照组倾向得分范围: {proba_B.min()} ~ {proba_B.max()}")
 
-        # 概率分布相似度计算
-        similarity = self.calculate_similarity(hist_A, hist_B, proba[:A_length], proba[A_length:], self.similarity_method)
+        # 绘制概率分布对比图
+        prob_dist_chart = plot_proba_distribution(proba_A, proba_B, n_bins=20, title="")
+        self.summary.append({"倾向性得分分布": prob_dist_chart.dump_options_with_quotes()})
 
-        # 在计算完所有指标后，添加可视化
-        self.metrics = {
-            'auc': auc,
-            'ks': ks,
-            'overlap': overlap,
-            'similarity': similarity
-        }
-        
-        # 创建分布对比图和指标水滴图
-        distribution_chart = self.plot_distribution(hist_A, hist_B, bins)
-        metrics_chart = self.plot_metrics(self.metrics)
-
-        self.summary = [{
-            '模型指标': metrics_chart.dump_options_with_quotes(),
-            '概率分布对比': distribution_chart.dump_options_with_quotes()
-        }]
-        
-        # 添加更详细的评估指标解释
-        overlap_quality = "相似度高" if overlap > 0.8 else "相似度一般" if overlap > 0.6 else "差异较大"
-        
-        self.logger.warn(f"PSM评估指标解释：")
-        self.logger.warn(f"- 分布重叠度={overlap:.4f} ({overlap_quality})")
-        self.logger.warn(f"- {self.similarity_method}相似度={similarity:.4f}")
-
-        return lz_A.with_columns(pl.lit(proba_A).alias("psm_score")).lazy(), lz_B.with_columns(pl.lit(proba_B).alias("psm_score")).lazy()
+        return lz_A.with_columns(pl.lit(proba_A).alias("propensity_score")).lazy(), \
+               lz_B.with_columns(pl.lit(proba_B).alias("propensity_score")).lazy()
