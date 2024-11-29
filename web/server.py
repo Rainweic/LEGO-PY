@@ -193,19 +193,17 @@ async def get_cpm_log():
         pipeline_log_path = os.path.join(base_path, "pipeline.log")
 
         # 读取日志内容
+        stage_log_content = "不存在"
+        pipeline_log_content = "不存在"
         if os.path.exists(stage_log_path):
             with open(stage_log_path, "r") as f:
-                log_content = f.read()
-        elif os.path.exists(pipeline_log_path):
+                stage_log_content = f.read()
+        if os.path.exists(pipeline_log_path):
             with open(pipeline_log_path, "r") as f:
-                log_content = f.read()
-        else:
-            msg = f"Stage、Pipeline日志文件均不存在, 路径：{base_path}"
-            logging.info(msg)
-            log_content = msg
+                pipeline_log_content = f.read()
 
         # 构建响应
-        response = jsonify({"log": log_content})
+        response = jsonify({"stage_log": stage_log_content, "pipeline_log": pipeline_log_content})
         origin = request.headers.get('Origin')
         if origin in origins:
             response.headers.add("Access-Control-Allow-Origin", origin)
