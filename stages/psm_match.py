@@ -298,7 +298,7 @@ class PSMMatch(CustomStage):
         matched_pairs, matched_A_idx, matched_B_idx = match_methods[self.method](proba_A, proba_B, ids_A, ids_B)
 
         self.logger.warning("""Tips: 
-        p > 0.1���匹配效果很好
+        p > 0.1匹配效果很好
         0.05 < p < 0.1：匹配效果可以接受
         0.01 < p < 0.05：匹配效果一般
         p < 0.01：匹配效果差""")
@@ -329,16 +329,21 @@ class PSMMatch(CustomStage):
                 
             else:
                 # 卡方检验（对离散型变量）
-                # 计算联列表
-                after_crosstab = np.histogram2d(
-                    A_matched_data, B_matched_data,
-                    bins=[np.unique(A_matched_data), np.unique(B_matched_data)]
-                )[0]
-                
-                after_chi2, after_pvalue = stats.chi2_contingency(after_crosstab)[:2]
-                
-                self.logger.info(f"\n特征 {col} (离散型) 的检验结果:")
-                self.logger.info(f"匹配后 - 卡方统计量: {after_chi2:.4f}, p值: {after_pvalue:.4f}")
+                try:
+                    # 计算联列表
+                    after_crosstab = np.histogram2d(
+                        A_matched_data, B_matched_data,
+                        bins=[np.unique(A_matched_data), np.unique(B_matched_data)]
+                    )[0]
+                    
+                    if after_crosstab.size > 0:
+                        after_chi2, after_pvalue = stats.chi2_contingency(after_crosstab)[:2]
+                        self.logger.info(f"\n特征 {col} (离散型) 的检验结果:")
+                        self.logger.info(f"匹配后 - 卡方统计量: {after_chi2:.4f}, p值: {after_pvalue:.4f}")
+                    else:
+                        self.logger.warning(f"\n特征 {col} (离散型) 无法进行卡方检验: 数据不足")
+                except Exception as e:
+                    self.logger.warning(f"\n特征 {col} (离散型) 进行卡方检验时出错: {str(e)}")
             
             # 计算匹配前后的SMD
             before_smd = self.calculate_smd(A_feature_data, B_feature_data)
