@@ -181,8 +181,8 @@ def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 20
     x_points = (edges[:-1] + edges[1:]) / 2
     x_labels = [f"{x:.2f}" for x in x_points]
     
-    # 创建曲线图实例
-    line = Line(
+    # 创建柱状图实例
+    bar = Bar(
         init_opts=opts.InitOpts(
             theme=ThemeType.LIGHT,
             width="900px",
@@ -191,33 +191,31 @@ def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 20
     )
     
     # 添加数据
-    line.add_xaxis(xaxis_data=x_labels)
-    line.add_yaxis(
+    bar.add_xaxis(xaxis_data=x_labels)
+    bar.add_yaxis(
         series_name="实验组",
         y_axis=hist_A.tolist(),
-        symbol_size=8,
-        is_smooth=True,
-        areastyle_opts=opts.AreaStyleOpts(opacity=0.3),
-        label_opts=opts.LabelOpts(is_show=False),
-        linestyle_opts=opts.LineStyleOpts(width=2)
+        category_gap="20%",
+        gap="0%",
+        itemstyle_opts=opts.ItemStyleOpts(opacity=0.8),
+        label_opts=opts.LabelOpts(is_show=False)
     )
-    line.add_yaxis(
+    bar.add_yaxis(
         series_name="对照组",
         y_axis=hist_B.tolist(),
-        symbol_size=8,
-        is_smooth=True,
-        areastyle_opts=opts.AreaStyleOpts(opacity=0.3),
-        label_opts=opts.LabelOpts(is_show=False),
-        linestyle_opts=opts.LineStyleOpts(width=2)
+        category_gap="20%",
+        gap="0%",
+        itemstyle_opts=opts.ItemStyleOpts(opacity=0.8),
+        label_opts=opts.LabelOpts(is_show=False)
     )
     
     # 设置全局选项
-    line.set_global_opts(
+    bar.set_global_opts(
         title_opts=opts.TitleOpts(
             title=title,
             pos_left="center"
         ),
-        tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross"),
+        tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="shadow"),
         xaxis_opts=opts.AxisOpts(
             name="取值",
             name_location="center",
@@ -238,7 +236,7 @@ def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 20
         ],
     )
     
-    return line
+    return bar
 
 
     
