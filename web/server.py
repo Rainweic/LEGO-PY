@@ -20,7 +20,7 @@ import cloudpickle
 import ray
 from user_count import UserCountActor
 from output import load_output
-
+from cleaner import Cleaner
 app = Flask(__name__)
 origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://lego-ui:8000", "http://10.222.107.184:8000"]
 
@@ -681,5 +681,8 @@ async def download_output():
 
 if __name__ == "__main__":
     user_counter = UserCountActor.remote()
+    # 定时清除缓存
+    cleaner = Cleaner.remote()
+    cleaner.run.remote()
     app.debug = False
     app.run(host='0.0.0.0', port=4242)
