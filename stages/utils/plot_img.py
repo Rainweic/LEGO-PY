@@ -159,7 +159,7 @@ def plot_curve(x: np.ndarray, y: np.ndarray, title: str = "曲线图", n_samples
     return line
 
 
-def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 20, title: str = "数据分布对比"):
+def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 30, title: str = "数据分布对比"):
     """使用pyecharts绘制分布对比曲线图
 
     Args:
@@ -197,7 +197,7 @@ def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 20
         y_axis=hist_A.tolist(),
         category_gap="20%",
         gap="0%",
-        itemstyle_opts=opts.ItemStyleOpts(opacity=0.8),
+        itemstyle_opts=opts.ItemStyleOpts(opacity=0.5),
         label_opts=opts.LabelOpts(is_show=False)
     )
     bar.add_yaxis(
@@ -205,7 +205,7 @@ def plot_hist_compare(array_A: np.ndarray, array_B: np.ndarray, n_bins: int = 20
         y_axis=hist_B.tolist(),
         category_gap="20%",
         gap="0%",
-        itemstyle_opts=opts.ItemStyleOpts(opacity=0.8),
+        itemstyle_opts=opts.ItemStyleOpts(opacity=0.5),
         label_opts=opts.LabelOpts(is_show=False)
     )
     
