@@ -31,7 +31,11 @@ class DealNan(CustomStage):
             if types[col] == pl.String:
                 lf = lf.with_columns(pl.col(col).replace("", None))
             else:
-                fill_value = eval(fill_value)
+                try:
+                    fill_value = eval(fill_value)
+                except:
+                    self.logger.error(f"您设置的自定义填充值{fill_value}无法转换为数字, 将跳过处理")
+                    continue
 
             if method == 'mean':
                 # 计算非NaN值的平均值
