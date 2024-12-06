@@ -404,7 +404,8 @@ class WOE(CustomStage):
         target = lf.select(pl.col(self.target_col)).collect().to_numpy().flatten()
         woe_summary = {}
 
-        iv_00_02 = []
+        iv_00_01 = []
+        iv_01_02 = []
         iv_02_03 = []
         iv_03_04 = []
         iv_04_05 = []
@@ -430,13 +431,13 @@ class WOE(CustomStage):
             woe_values = [woe_map[label] for label in bin_labels]
             iv_values = [bin_iv_map[label] for label in bin_labels]  # 获取每个样本对应的IV值
             
-            if total_iv > 0.0 and total_iv <= 0.2:
-                iv_00_02.append(col)
+            if total_iv > 0.0 and total_iv <= 0.1:
+                iv_00_01.append(col)
+            elif total_iv > 0.1 and total_iv <= 0.2:
+                iv_01_02.append(col)
             elif total_iv > 0.2 and total_iv <= 0.3:
                 iv_02_03.append(col)
             elif total_iv > 0.3 and total_iv <= 0.4:
-                iv_03_04.append(col)
-            elif total_iv > 0.4 and total_iv <= 0.5:
                 iv_04_05.append(col)
             elif total_iv > 0.5 and total_iv <= 1.0:
                 iv_05_10.append(col)
@@ -500,10 +501,11 @@ class WOE(CustomStage):
         
         self.summary = self._plot_woe_summary(woe_summary)
 
-        self.logger.info(f"IV值在(0, 0.2]的特征: {iv_00_02}")
-        self.logger.info(f"IV值在(0.2, 0.3]的特征: {iv_02_03}")
-        self.logger.info(f"IV值在(0.3, 0.4]的特征: {iv_03_04}")
-        self.logger.info(f"IV值在(0.4, 0.5]的特征: {iv_04_05}")
-        self.logger.info(f"IV值在(0.5, 1.0]的特征: {iv_05_10}")
+        self.logger.info(f"IV值在(0, 0.1]的特征【不推荐使用】: {iv_00_01}")
+        self.logger.info(f"IV值在(0.1, 0.2]的特征【凑合使用】: {iv_01_02}")
+        self.logger.info(f"IV值在(0.2, 0.3]的特征【推荐使用】: {iv_02_03}")
+        self.logger.info(f"IV值在(0.3, 0.4]的特征【推荐使用】: {iv_03_04}")
+        self.logger.info(f"IV值在(0.4, 0.5]的特征【推荐使用】: {iv_04_05}")
+        self.logger.info(f"IV值在(0.5, 1.0]的特征【警惕使用】: {iv_05_10}")
         
         return lf
