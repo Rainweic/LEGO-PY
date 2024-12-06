@@ -438,6 +438,8 @@ class WOE(CustomStage):
             elif total_iv > 0.2 and total_iv <= 0.3:
                 iv_02_03.append(col)
             elif total_iv > 0.3 and total_iv <= 0.4:
+                iv_03_04.append(col)
+            elif total_iv > 0.4 and total_iv <= 0.5:
                 iv_04_05.append(col)
             elif total_iv > 0.5 and total_iv <= 1.0:
                 iv_05_10.append(col)
